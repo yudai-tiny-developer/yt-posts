@@ -41,31 +41,12 @@
     });
 
     const channels = [];
-
-    const items = data
-      ?.contents
-      ?.twoColumnBrowseResultsRenderer
-      ?.tabs?.[0]
-      ?.tabRenderer
-      ?.content
-      ?.sectionListRenderer
-      ?.contents?.[0]
-      ?.itemSectionRenderer
-      ?.contents?.[0]
-      ?.shelfRenderer
-      ?.content
-      ?.expandedShelfContentsRenderer
-      ?.items ?? [];
-
-    items.forEach(i => {
-      const r = i.channelRenderer;
-      if (!r) return;
-
+    findValuesByKey(data, "channelRenderer")?.forEach(channelRenderer => {
       channels.push({
-        channelId: r.channelId,
-        canonicalBaseUrl: r.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl,
-        name: r.title?.simpleText,
-        icon: r.thumbnail?.thumbnails?.slice(-1)?.[0]?.url,
+        channelId: channelRenderer.channelId,
+        canonicalBaseUrl: channelRenderer.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl,
+        name: channelRenderer.title?.simpleText,
+        icon: channelRenderer.thumbnail?.thumbnails?.slice(-1)?.[0]?.url,
       });
     });
 
@@ -79,31 +60,13 @@
     const data = await callInnertube("browse", { browseId: channel.channelId, params: "EgVwb3N0c_IGBAoCSgA%3D" });
 
     const posts = [];
-
-    const items = data
-      ?.contents
-      ?.twoColumnBrowseResultsRenderer
-      ?.tabs
-      ?.find(t => t.tabRenderer?.title === "Posts")
-      ?.tabRenderer
-      ?.content
-      ?.sectionListRenderer
-      ?.contents ?? [];
-
-    items.forEach(s => {
-      const contents = s.itemSectionRenderer?.contents ?? [];
-
-      contents.forEach(content => {
-        const backstagePostRenderer = content.backstagePostThreadRenderer?.post?.backstagePostRenderer;
-        if (!backstagePostRenderer) return;
-
-        posts.push({
-          channel,
-          postId: backstagePostRenderer.postId,
-          text: backstagePostRenderer.contentText?.runs?.map(r => r.text).join("") ?? "...",
-          time: backstagePostRenderer.publishedTimeText?.runs?.[0]?.text,
-          fetchedAt: Date.now(),
-        });
+    findValuesByKey(data, "backstagePostRenderer")?.forEach(backstagePostRenderer => {
+      posts.push({
+        channel,
+        postId: backstagePostRenderer.postId,
+        text: backstagePostRenderer.contentText?.runs?.map(r => r.text).join("") ?? "...",
+        time: backstagePostRenderer.publishedTimeText?.runs?.[0]?.text,
+        fetchedAt: Date.now(),
       });
     });
 
@@ -113,19 +76,8 @@
   async function fetchPostById(requestId, post) {
     const data = await callInnertube("browse", { browseId: "FEpost_detail", params: encodeCommunityPostParamsBase64(post.postId, post.channel.channelId) });
 
-    const backstagePostRenderer = data
-      ?.contents
-      ?.twoColumnBrowseResultsRenderer
-      ?.tabs?.[0]
-      ?.tabRenderer
-      ?.content
-      ?.sectionListRenderer
-      ?.contents?.[0]
-      ?.itemSectionRenderer
-      ?.contents?.[0]
-      ?.backstagePostThreadRenderer
-      ?.post
-      ?.backstagePostRenderer;
+    const backstagePostRenderer = findFirstValueByKey(data, "backstagePostRenderer");
+    if (!backstagePostRenderer) return;
 
     sendResponce("YT_FETCH_POST_BY_ID_RESULT", requestId, [{
       channel: post.channel,
@@ -134,6 +86,7 @@
       time: backstagePostRenderer?.publishedTimeText?.runs?.[0]?.text,
       fetchedAt: Date.now(),
     }]);
+
   }
 
   function sendResponce(type, requestId, posts) {
@@ -200,6 +153,77 @@
     out.push(...field1);
 
     return uint8ToBase64(new Uint8Array(out));
+  }
+
+  function findValuesByKey(root, targetKey) {
+    const results = [];
+    const stack = [root];
+    const visited = new WeakSet();
+
+    while (stack.length) {
+      const current = stack.pop();
+
+      if (current === null || typeof current !== "object") continue;
+      if (visited.has(current)) continue;
+      visited.add(current);
+
+      if (Array.isArray(current)) {
+        for (let i = 0; i < current.length; i++) {
+          stack.push(current[i]);
+        }
+      } else {
+        const keys = Object.keys(current);
+        for (let i = 0; i < keys.length; i++) {
+          const k = keys[i];
+          const value = current[k];
+
+          if (k === targetKey) {
+            results.push(value);
+          }
+
+          if (value && typeof value === "object") {
+            stack.push(value);
+          }
+        }
+      }
+    }
+
+    return results;
+  }
+
+  function findFirstValueByKey(root, targetKey) {
+    const stack = [root];
+    const visited = new WeakSet();
+
+    while (stack.length) {
+      const current = stack.pop();
+
+      if (current === null || typeof current !== "object") continue;
+      if (visited.has(current)) continue;
+      visited.add(current);
+
+      if (Array.isArray(current)) {
+        for (let i = 0; i < current.length; i++) {
+          stack.push(current[i]);
+        }
+      } else {
+        const keys = Object.keys(current);
+        for (let i = 0; i < keys.length; i++) {
+          const k = keys[i];
+          const value = current[k];
+
+          if (k === targetKey) {
+            return value;
+          }
+
+          if (value && typeof value === "object") {
+            stack.push(value);
+          }
+        }
+      }
+    }
+
+    return undefined;
   }
 
   window.addEventListener("message", e => {
