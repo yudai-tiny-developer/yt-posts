@@ -38,7 +38,7 @@ export async function deleteExpiredPosts() {
 	if (!posts || posts.length <= 500) return;
 
 	const sorted = posts.sort((a, b) => parseTime(a.time) - parseTime(b.time));
-	const toDelete = sorted.slice(0, 500);
+	const toDelete = sorted.slice(500);
 
 	const tx = db.transaction(STORE_NAME, "readwrite");
 	const store = tx.objectStore(STORE_NAME);
