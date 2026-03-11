@@ -102,6 +102,7 @@
           postId: backstagePostRenderer.postId,
           text: backstagePostRenderer.contentText?.runs?.map(r => r.text).join("") ?? "...",
           time: backstagePostRenderer.publishedTimeText?.runs?.[0]?.text,
+          fetchedAt: Date.now(),
         });
       });
     });
@@ -131,6 +132,7 @@
       postId: post.postId,
       text: backstagePostRenderer?.contentText?.runs?.map(r => r.text).join("") ?? "...",
       time: backstagePostRenderer?.publishedTimeText?.runs?.[0]?.text,
+      fetchedAt: Date.now(),
     }]);
   }
 

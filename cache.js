@@ -79,30 +79,62 @@ export async function loadFromIndexedDB() {
 	});
 }
 
+const units = [
+	{ name: "year", seconds: 60 * 60 * 24 * 365 },
+	{ name: "month", seconds: 60 * 60 * 24 * 30 }, // tolerance
+	{ name: "week", seconds: 60 * 60 * 24 * 7 },
+	{ name: "day", seconds: 60 * 60 * 24 },
+	{ name: "hour", seconds: 60 * 60 },
+	{ name: "minute", seconds: 60 },
+	{ name: "second", seconds: 1 },
+];
+
 export function parseTime(str) {
 	if (!str) return Infinity;
-
-	const s = {
-		second: 1,
-		minute: 60,
-		hour: 60 * 60,
-		day: 24 * 60 * 60,
-		week: 7 * 24 * 60 * 60,
-		month: 30 * 24 * 60 * 60, // tolerance
-		year: 365 * 24 * 60 * 60,
-	};
 
 	const re = /(\d+)\s*(second|minute|hour|day|week|month|year)s?/i;
 	const match = str.match(re);
 	if (!match) return Infinity;
 
-	const value = Number(match[1]);
+	const value = Number(match[1]) * 1000;
 	const unit = match[2].toLowerCase();
 
-	const base = value * (s[unit] ?? Infinity);
+	const base = value * (units.find(u => u.name === unit)?.seconds ?? Infinity);
 
 	if (/ago/i.test(str)) return base;
 	if (/expires?\s+in/i.test(str)) return -base;
 
 	return Infinity;
+}
+
+export function formatRelativeTime(ms) {
+	const seconds = Math.floor(ms / 1000);
+	const abs = Math.abs(seconds);
+
+	for (let i = 0; i < units.length; i++) {
+		const unit = units[i];
+		const largerUnit = units[i - 1];
+
+		const valueFloor = Math.floor(abs / unit.seconds);
+		const value = Math.round(abs / unit.seconds);
+
+		if (valueFloor >= 1 || unit.name === "second") {
+			if (largerUnit && value * unit.seconds >= largerUnit.seconds) {
+				const nextValue = Math.ceil(abs / largerUnit.seconds);
+				const label = nextValue === 1 ? largerUnit.name : largerUnit.name + "s";
+
+				return seconds >= 0
+					? `${nextValue} ${label} ago`
+					: `Expires in ${nextValue} ${label}`;
+			}
+
+			const label = value === 1 ? unit.name : unit.name + "s";
+
+			return seconds >= 0
+				? `${value} ${label} ago`
+				: `Expires in ${value} ${label}`;
+		}
+	}
+
+	return seconds;
 }
