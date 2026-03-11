@@ -1,4 +1,4 @@
-import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, MAX_POSTS }) => {
+import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, formatRelativeTime, MAX_POSTS }) => {
   const MAX_PARALLEL = 2;
   const PARALLEL_DELAY = 1000;
 
@@ -50,8 +50,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
             <span id="yt-posts-count-done">???</span>
             <span>&nbsp;/&nbsp;</span>
             <span id="yt-posts-count-max">???</span>
-            <span>)&nbsp;</span>
-            <span>at ${new Date().toLocaleString()}</span>
+            <span>)</span>
           </div>
           <div class="yt-posts-header-right">
             <span id="yt-posts-close">✕</span>
@@ -239,13 +238,16 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
       }
 
       if (post.time) {
+        item.dataset.time = parseTime(post.time);
+        item.dataset.fetchedAt = post.fetchedAt;
+
         item.innerHTML = `
           <div class="yt-posts-item-body">
             <a class="yt-posts-channel-header" href="${post.channel.canonicalBaseUrl ? post.channel.canonicalBaseUrl : ('/channel/' + post.channel.channelId)}" target="_blank">
               <img src="${post.channel.icon}">
               <span>${post.channel.name}</span>
             </a>
-            <div class="yt-posts-date">${post.time}</div>
+            <div class="yt-posts-date">${formatRelativeTime(Number(item.dataset.time) + Date.now() - post.fetchedAt)}</div>
             <div class="yt-posts-text">${post.text}</div>
           </div>
         `;
@@ -263,9 +265,9 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
     const items = Array.from(container.querySelectorAll('.yt-posts-item'));
 
     const posts = items.sort((a, b) => {
-      const dateA = a.querySelector('.yt-posts-date')?.textContent.trim();
-      const dateB = b.querySelector('.yt-posts-date')?.textContent.trim();
-      return parseTime(dateA) - parseTime(dateB);
+      const dateA = Number(a.dataset.time) - Number(a.dataset.fetchedAt);
+      const dateB = Number(b.dataset.time) - Number(b.dataset.fetchedAt);
+      return dateA - dateB;
     }).slice(0, MAX_POSTS);
 
     const fragment = document.createDocumentFragment();
