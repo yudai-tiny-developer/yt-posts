@@ -116,10 +116,6 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
 
       renderPosts(msg.posts);
       deleteExpiredPosts();
-
-      const container = document.getElementById(`yt-posts-body`);
-      if (!container) return;
-      sortPostsByDate(container);
       return;
     }
 
@@ -259,6 +255,8 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
         item.remove();
       }
     });
+
+    sortPostsByDate(container);
   }
 
   function sortPostsByDate(container) {
