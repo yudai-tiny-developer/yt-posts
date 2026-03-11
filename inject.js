@@ -120,6 +120,8 @@
       ?.content
       ?.sectionListRenderer
       ?.contents?.[0]
+      ?.itemSectionRenderer
+      ?.contents?.[0]
       ?.backstagePostThreadRenderer
       ?.post
       ?.backstagePostRenderer;

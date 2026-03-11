@@ -106,6 +106,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
       doneCount = 0;
 
       fetchPostsByChannels(msg.channels);
+      return;
     }
 
     if (msg.type === "YT_FETCH_POSTS_BY_CHANNEL_RESULT") {
@@ -115,10 +116,16 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
 
       renderPosts(msg.posts);
       deleteExpiredPosts();
+
+      const container = document.getElementById(`yt-posts-body`);
+      if (!container) return;
+      sortPostsByDate(container);
+      return;
     }
 
     if (msg.type === "YT_FETCH_POST_BY_ID_RESULT") {
       renderPosts(msg.posts);
+      return;
     }
   });
 
@@ -252,8 +259,6 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
         item.remove();
       }
     });
-
-    sortPostsByDate(container);
   }
 
   function sortPostsByDate(container) {

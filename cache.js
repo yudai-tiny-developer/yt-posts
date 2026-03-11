@@ -89,7 +89,7 @@ export function parseTime(str) {
 		day: 24 * 60 * 60,
 		week: 7 * 24 * 60 * 60,
 		month: 30 * 24 * 60 * 60, // tolerance
-		year: 365 * 24 * 60 * 60
+		year: 365 * 24 * 60 * 60,
 	};
 
 	const re = /(\d+)\s*(second|minute|hour|day|week|month|year)s?/i;
@@ -99,7 +99,7 @@ export function parseTime(str) {
 	const value = Number(match[1]);
 	const unit = match[2].toLowerCase();
 
-	const base = value * (s[unit] || Infinity);
+	const base = value * (s[unit] ?? Infinity);
 
 	if (/ago/i.test(str)) return base;
 	if (/expires?\s+in/i.test(str)) return -base;
