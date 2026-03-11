@@ -2,6 +2,8 @@ const DB_NAME = "yt-posts-db";
 const STORE_NAME = "yt-posts-store";
 const DB_VERSION = 1;
 
+export const MAX_POSTS = 100;
+
 function openDB() {
 	return new Promise((resolve, reject) => {
 		const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -35,10 +37,10 @@ export async function saveToIndexedDB(key, post) {
 export async function deleteExpiredPosts() {
 	const db = await openDB();
 	const posts = await loadFromIndexedDB();
-	if (!posts || posts.length <= 500) return;
+	if (!posts || posts.length <= MAX_POSTS) return;
 
 	const sorted = posts.sort((a, b) => parseTime(a.time) - parseTime(b.time));
-	const toDelete = sorted.slice(500);
+	const toDelete = sorted.slice(MAX_POSTS);
 
 	const tx = db.transaction(STORE_NAME, "readwrite");
 	const store = tx.objectStore(STORE_NAME);

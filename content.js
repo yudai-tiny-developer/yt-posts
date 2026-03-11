@@ -1,4 +1,4 @@
-import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime }) => {
+import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, MAX_POSTS }) => {
   const MAX_PARALLEL = 2;
   const PARALLEL_DELAY = 1000;
 
@@ -263,7 +263,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
       const dateA = a.querySelector('.yt-posts-date')?.textContent.trim();
       const dateB = b.querySelector('.yt-posts-date')?.textContent.trim();
       return parseTime(dateA) - parseTime(dateB);
-    }).slice(0, 500);
+    }).slice(0, MAX_POSTS);
 
     const fragment = document.createDocumentFragment();
     posts.forEach(el => fragment.appendChild(el));
