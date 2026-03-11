@@ -1,6 +1,6 @@
-import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB }) => {
+import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime }) => {
   const MAX_PARALLEL = 2;
-  const PARALLEL_DELAY = 500;
+  const PARALLEL_DELAY = 1000;
 
   function injectScript() {
     const s = document.createElement("script");
@@ -51,6 +51,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB }) => {
             <span>&nbsp;/&nbsp;</span>
             <span id="yt-posts-count-max">???</span>
             <span>)&nbsp;</span>
+            <span>at ${new Date().toLocaleString()}</span>
           </div>
           <div class="yt-posts-header-right">
             <span id="yt-posts-close">✕</span>
@@ -71,14 +72,16 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB }) => {
     const posts = await loadFromIndexedDB();
     if (posts) {
       renderPosts(posts, true);
+      active = true;
+      refetchPosts(posts);
+    } else {
+      active = true;
     }
 
-    active = true;
-
-    requestSubscriptions();
+    requestChannels();
   }
 
-  function requestSubscriptions() {
+  function requestChannels() {
     const loader = document.getElementById("yt-posts-loader");
     if (!loader) return;
     loader.style.visibility = "";
@@ -102,28 +105,33 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB }) => {
       max.textContent = msg.channels.length;
       doneCount = 0;
 
-      fetchPosts(msg.channels);
+      fetchPostsByChannels(msg.channels);
     }
 
-    if (msg.type === "YT_FETCH_POSTS_RESULT") {
+    if (msg.type === "YT_FETCH_POSTS_BY_CHANNEL_RESULT") {
       const loader = document.getElementById("yt-posts-loader");
       if (!loader) return;
       loader.style.visibility = "hidden";
 
       renderPosts(msg.posts);
+      deleteExpiredPosts();
+    }
+
+    if (msg.type === "YT_FETCH_POST_BY_ID_RESULT") {
+      renderPosts(msg.posts);
     }
   });
 
-  async function fetchPosts(channels) {
+  async function fetchPostsByChannels(channels) {
     const queue = [...channels];
 
-    function fetchChannelPosts(channel) {
+    function fetchPostsByChannel(channel) {
       return new Promise((resolve, reject) => {
         const requestId = crypto.randomUUID();
 
         function handler(event) {
           if (
-            event.data?.type === "YT_FETCH_POSTS_RESULT" &&
+            event.data?.type === "YT_FETCH_POSTS_BY_CHANNEL_RESULT" &&
             event.data?.requestId === requestId
           ) {
             window.removeEventListener("message", handler);
@@ -138,7 +146,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB }) => {
         loader.style.visibility = "";
 
         window.postMessage({
-          type: "YT_FETCH_POSTS",
+          type: "YT_FETCH_POSTS_BY_CHANNEL",
           requestId,
           channel,
         }, "*");
@@ -148,12 +156,51 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB }) => {
     async function worker() {
       while (queue.length && active) {
         const channel = queue.shift();
-        await fetchChannelPosts(channel);
+        await fetchPostsByChannel(channel);
 
         doneCount++;
         const done = document.getElementById("yt-posts-count-done");
         if (!done) return;
         done.textContent = doneCount;
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: MAX_PARALLEL }, worker)
+    );
+  }
+
+  async function refetchPosts(posts) {
+    const queue = [...posts];
+
+    function fetchPostById(post) {
+      return new Promise((resolve, reject) => {
+        const requestId = crypto.randomUUID();
+
+        function handler(event) {
+          if (
+            event.data?.type === "YT_FETCH_POST_BY_ID_RESULT" &&
+            event.data?.requestId === requestId
+          ) {
+            window.removeEventListener("message", handler);
+            setTimeout(() => resolve(event.data.payload), PARALLEL_DELAY);
+          }
+        }
+
+        window.addEventListener("message", handler);
+
+        window.postMessage({
+          type: "YT_FETCH_POST_BY_ID",
+          requestId,
+          post,
+        }, "*");
+      });
+    }
+
+    async function worker() {
+      while (queue.length && active) {
+        const post = queue.shift();
+        await fetchPostById(post);
       }
     }
 
@@ -168,25 +215,27 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB }) => {
     const container = document.getElementById(`yt-posts-body`);
     if (!container) return;
 
-    posts
-      .forEach(post => {
-        saveToIndexedDB(post.postId, post);
+    posts.forEach(post => {
+      if (!post) return;
 
-        let item = document.getElementById(post.postId)
-        if (!item) {
-          item = document.createElement("a");
-          item.id = post.postId;
-          item.className = "yt-posts-item";
-          item.setAttribute("href", `https://www.youtube.com/post/${post.postId}`);
-          item.setAttribute("target", "_blank");
-        }
+      saveToIndexedDB(post.postId, post);
 
-        if (isCache) {
-          item.classList.add("yt-posts-item-cache");
-        } else {
-          item.classList.remove("yt-posts-item-cache");
-        }
+      let item = document.getElementById(post.postId)
+      if (!item) {
+        item = document.createElement("a");
+        item.id = post.postId;
+        item.className = "yt-posts-item";
+        item.setAttribute("href", `https://www.youtube.com/post/${post.postId}`);
+        item.setAttribute("target", "_blank");
+      }
 
+      if (isCache) {
+        item.classList.add("yt-posts-item-cache");
+      } else {
+        item.classList.remove("yt-posts-item-cache");
+      }
+
+      if (post.time) {
         item.innerHTML = `
           <div class="yt-posts-item-body">
             <a class="yt-posts-channel-header" href="${post.channel.canonicalBaseUrl ? post.channel.canonicalBaseUrl : ('/channel/' + post.channel.channelId)}" target="_blank">
@@ -194,12 +243,15 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB }) => {
               <span>${post.channel.name}</span>
             </a>
             <div class="yt-posts-date">${post.time}</div>
-            <div class="yt-posts-text">${post.text || "..."}</div>
+            <div class="yt-posts-text">${post.text}</div>
           </div>
         `;
 
         container.appendChild(item);
-      });
+      } else {
+        item.remove();
+      }
+    });
 
     sortPostsByDate(container);
   }
@@ -217,33 +269,4 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB }) => {
     posts.forEach(el => fragment.appendChild(el));
     container.replaceChildren(fragment);
   }
-
-  function parseTime(str) {
-    if (!str) return 0;
-
-    const ms = {
-      second: 1000,
-      minute: 60 * 1000,
-      hour: 60 * 60 * 1000,
-      day: 24 * 60 * 60 * 1000,
-      week: 7 * 24 * 60 * 60 * 1000,
-      month: 30 * 24 * 60 * 60 * 1000,
-      year: 365 * 24 * 60 * 60 * 1000
-    };
-
-    const re = /(\d+)\s*(second|minute|hour|day|week|month|year)s?/i;
-    const match = str.match(re);
-    if (!match) return 0;
-
-    const value = Number(match[1]);
-    const unit = match[2].toLowerCase();
-
-    const base = value * (ms[unit] || 0);
-
-    if (/ago/i.test(str)) return base;
-    if (/expires?\s+in/i.test(str)) return -base;
-
-    return 0;
-  }
-
 });
