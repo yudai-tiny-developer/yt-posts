@@ -51,6 +51,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
             <span>&nbsp;/&nbsp;</span>
             <span id="yt-posts-count-max">???</span>
             <span>)&nbsp;</span>
+            <span>at ${new Date().toLocaleString()}</span>
           </div>
           <div class="yt-posts-header-right">
             <span id="yt-posts-close">✕</span>
