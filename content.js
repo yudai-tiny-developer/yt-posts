@@ -1,4 +1,4 @@
-import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, formatRelativeTime, MAX_POSTS }) => {
+import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, formatRelativeTime, MAX_POSTS }) => {
   const MAX_PARALLEL = 2;
   const PARALLEL_DELAY = 1000;
 
@@ -66,7 +66,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
     document.getElementById("yt-posts-dialog-overlay").onclick = document.getElementById("yt-posts-close").onclick = () => {
       active = false;
       dialog.remove();
-    }
+    };
 
     const posts = await loadFromIndexedDB();
     if (posts) {
@@ -222,7 +222,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
 
       saveToIndexedDB(post.postId, post);
 
-      let item = document.getElementById(post.postId)
+      let item = document.getElementById(post.postId);
       if (!item) {
         item = document.createElement("a");
         item.id = post.postId;
