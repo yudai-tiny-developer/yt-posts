@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Subscribed Posts Viewer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "YouTube Subscribed Posts Viewer",
   "content_scripts": [
     {
