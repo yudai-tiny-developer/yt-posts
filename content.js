@@ -1,4 +1,4 @@
-import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime }) => {
+import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, MAX_POSTS }) => {
   const MAX_PARALLEL = 2;
   const PARALLEL_DELAY = 1000;
 
@@ -106,6 +106,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
       doneCount = 0;
 
       fetchPostsByChannels(msg.channels);
+      return;
     }
 
     if (msg.type === "YT_FETCH_POSTS_BY_CHANNEL_RESULT") {
@@ -115,10 +116,16 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
 
       renderPosts(msg.posts);
       deleteExpiredPosts();
+
+      const container = document.getElementById(`yt-posts-body`);
+      if (!container) return;
+      sortPostsByDate(container);
+      return;
     }
 
     if (msg.type === "YT_FETCH_POST_BY_ID_RESULT") {
       renderPosts(msg.posts);
+      return;
     }
   });
 
@@ -252,8 +259,6 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
         item.remove();
       }
     });
-
-    sortPostsByDate(container);
   }
 
   function sortPostsByDate(container) {
@@ -263,7 +268,7 @@ import("./cache.js").then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPo
       const dateA = a.querySelector('.yt-posts-date')?.textContent.trim();
       const dateB = b.querySelector('.yt-posts-date')?.textContent.trim();
       return parseTime(dateA) - parseTime(dateB);
-    }).slice(0, 500);
+    }).slice(0, MAX_POSTS);
 
     const fragment = document.createDocumentFragment();
     posts.forEach(el => fragment.appendChild(el));
