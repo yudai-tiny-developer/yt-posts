@@ -12,22 +12,26 @@
   };
 
   async function callInnertube(endpoint, body) {
+    const context = Object.assign({}, ytcfg.data_.INNERTUBE_CONTEXT);
+    context.client.hl = "en";
+
     const res = await fetch(`/youtubei/v1/${endpoint}?key=${ytcfg.data_.INNERTUBE_API_KEY}&prettyPrint=false`, {
       method: "POST",
       headers: {
+        "X-Ignore-Set-Cookie": "true",
         "accept": "*/*",
         "authorization": "SAPISIDHASH " + await getSApiSidHash(document.cookie.split("SAPISID=")[1]?.split("; ")[0], window.origin),
         "content-type": "application/json",
         "x-goog-authuser": ytcfg.data_.SESSION_INDEX,
+        "x-goog-visitor-id": ytcfg.data_.VISITOR_DATA,
+        "x-origin": window.origin,
+        "x-youtube-bootstrap-logged-in": true,
+        "x-youtube-client-name": ytcfg.data_.INNERTUBE_CLIENT_NAME,
+        "x-youtube-client-version": ytcfg.data_.INNERTUBE_CLIENT_VERSION,
         "x-goog-pageid": ytcfg.data_.DELEGATED_SESSION_ID,
       },
       body: JSON.stringify({
-        "context": {
-          "client": {
-            "clientName": "WEB",
-            "clientVersion": ytcfg.data_.INNERTUBE_CLIENT_VERSION,
-          },
-        },
+        "context": context,
         ...body
       })
     });
@@ -61,6 +65,7 @@
 
     const posts = [];
     findValuesByKey(data, "backstagePostRenderer")?.forEach(backstagePostRenderer => {
+      console.log(backstagePostRenderer);
       posts.push({
         channel,
         postId: backstagePostRenderer.postId,
