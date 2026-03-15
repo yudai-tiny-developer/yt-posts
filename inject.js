@@ -12,13 +12,12 @@
   };
 
   async function callInnertube(endpoint, body) {
-    const context = Object.assign({}, ytcfg.data_.INNERTUBE_CONTEXT);
-    context.client.hl = "en";
-
-    const res = await fetch(`/youtubei/v1/${endpoint}?key=${ytcfg.data_.INNERTUBE_API_KEY}&prettyPrint=false`, {
+    const url = `/youtubei/v1/${endpoint}?key=${ytcfg.data_.INNERTUBE_API_KEY}&prettyPrint=false&hl=en`;
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "X-Ignore-Set-Cookie": "true",
+        "Accept-Language": "en",
         "accept": "*/*",
         "authorization": "SAPISIDHASH " + await getSApiSidHash(document.cookie.split("SAPISID=")[1]?.split("; ")[0], window.origin),
         "content-type": "application/json",
@@ -31,7 +30,11 @@
         "x-goog-pageid": ytcfg.data_.DELEGATED_SESSION_ID,
       },
       body: JSON.stringify({
-        "context": context,
+        "context": (() => {
+          const ctx = JSON.parse(JSON.stringify(ytcfg.data_.INNERTUBE_CONTEXT));
+          delete ctx.client.hl;
+          return ctx;
+        })(),
         ...body
       })
     });
