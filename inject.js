@@ -18,7 +18,9 @@
       "Accept-Language": "en",
       "accept": "*/*",
       "content-type": "application/json",
+      "referer": window.location.href,
       "x-origin": window.origin,
+      "x-goog-timezone": Intl.DateTimeFormat().resolvedOptions().timeZone,
       "x-youtube-client-name": ytcfg.data_.INNERTUBE_CLIENT_NAME,
       "x-youtube-client-version": ytcfg.data_.INNERTUBE_CLIENT_VERSION,
     };
@@ -39,6 +41,12 @@
     if (context.client) {
       context.client = { ...context.client };
       delete context.client.hl;
+
+      context.request = {
+        ...context.request,
+        internalExperimentFlags: [],
+        consistencyTokenJars: [],
+      };
     }
 
     const res = await fetch(url, {
@@ -47,7 +55,7 @@
       body: JSON.stringify({
         context,
         ...body
-      })
+      }),
     });
 
     return res.json();
@@ -79,7 +87,6 @@
 
     const posts = [];
     findValuesByKey(data, "backstagePostRenderer")?.forEach(backstagePostRenderer => {
-      console.log(backstagePostRenderer);
       posts.push({
         channel,
         postId: backstagePostRenderer.postId,
