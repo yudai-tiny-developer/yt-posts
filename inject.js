@@ -6,30 +6,56 @@
   };
 
   async function getSApiSidHash(SAPISID, origin) {
-    const TIMESTAMP_MS = Date.now();
-    const digest = await sha1(`${TIMESTAMP_MS} ${SAPISID} ${origin}`);
-    return `${TIMESTAMP_MS}_${digest}`;
+    const TIMESTAMP_SEC = Math.floor(Date.now() / 1000);
+    const digest = await sha1(`${TIMESTAMP_SEC} ${SAPISID} ${origin}`);
+    return `${TIMESTAMP_SEC}_${digest}`;
   };
 
   async function callInnertube(endpoint, body) {
-    const res = await fetch(`/youtubei/v1/${endpoint}?key=${ytcfg.data_.INNERTUBE_API_KEY}&prettyPrint=false`, {
+    const url = `/youtubei/v1/${endpoint}?key=${ytcfg.data_.INNERTUBE_API_KEY}&prettyPrint=false&hl=en`;
+
+    const headers = {
+      "Accept-Language": "en",
+      "accept": "*/*",
+      "content-type": "application/json",
+      "referer": window.location.href,
+      "x-origin": window.origin,
+      "x-goog-timezone": Intl.DateTimeFormat().resolvedOptions().timeZone,
+      "x-youtube-client-name": ytcfg.data_.INNERTUBE_CLIENT_NAME,
+      "x-youtube-client-version": ytcfg.data_.INNERTUBE_CLIENT_VERSION,
+    };
+
+    if (ytcfg.data_.LOGGED_IN) {
+      headers["x-youtube-bootstrap-logged-in"] = "true";
+      const sapisidCookie = document.cookie.match(/(?:^|; )SAPISID=([^;]+)/);
+      if (sapisidCookie) {
+        headers["authorization"] = `SAPISIDHASH ${await getSApiSidHash(sapisidCookie[1], window.origin)}`;
+      }
+    }
+
+    if (ytcfg.data_.SESSION_INDEX !== undefined) headers["x-goog-authuser"] = ytcfg.data_.SESSION_INDEX;
+    if (ytcfg.data_.VISITOR_DATA) headers["x-goog-visitor-id"] = ytcfg.data_.VISITOR_DATA;
+    if (ytcfg.data_.DELEGATED_SESSION_ID) headers["x-goog-pageid"] = ytcfg.data_.DELEGATED_SESSION_ID;
+
+    const context = { ...ytcfg.data_.INNERTUBE_CONTEXT };
+    if (context.client) {
+      context.client = { ...context.client };
+      delete context.client.hl;
+
+      context.request = {
+        ...context.request,
+        internalExperimentFlags: [],
+        consistencyTokenJars: [],
+      };
+    }
+
+    const res = await fetch(url, {
       method: "POST",
-      headers: {
-        "accept": "*/*",
-        "authorization": "SAPISIDHASH " + await getSApiSidHash(document.cookie.split("SAPISID=")[1]?.split("; ")[0], window.origin),
-        "content-type": "application/json",
-        "x-goog-authuser": ytcfg.data_.SESSION_INDEX,
-        "x-goog-pageid": ytcfg.data_.DELEGATED_SESSION_ID,
-      },
+      headers,
       body: JSON.stringify({
-        "context": {
-          "client": {
-            "clientName": "WEB",
-            "clientVersion": ytcfg.data_.INNERTUBE_CLIENT_VERSION,
-          },
-        },
+        context,
         ...body
-      })
+      }),
     });
 
     return res.json();
