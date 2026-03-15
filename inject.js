@@ -35,7 +35,6 @@
     if (ytcfg.data_.VISITOR_DATA) headers["x-goog-visitor-id"] = ytcfg.data_.VISITOR_DATA;
     if (ytcfg.data_.DELEGATED_SESSION_ID) headers["x-goog-pageid"] = ytcfg.data_.DELEGATED_SESSION_ID;
 
-    // JSON.parse(JSON.stringify())を使わず、スプレッド構文でコピーして hl を削除
     const context = { ...ytcfg.data_.INNERTUBE_CONTEXT };
     if (context.client) {
       context.client = { ...context.client };
