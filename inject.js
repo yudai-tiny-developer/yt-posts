@@ -12,7 +12,7 @@
   };
 
   async function callInnertube(endpoint, body) {
-    const url = `/youtubei/v1/${endpoint}?key=${ytcfg.data_.INNERTUBE_API_KEY}&prettyPrint=false&hl=en`;
+    const url = `/youtubei/v1/${endpoint}?key=${ytcfg.data_.INNERTUBE_API_KEY}&prettyPrint=false&hl=en&gl=US`;
 
     const headers = {
       "Accept-Language": "en",
@@ -41,6 +41,7 @@
     if (context.client) {
       context.client = { ...context.client };
       delete context.client.hl;
+      delete context.client.gl;
 
       context.request = {
         ...context.request,
