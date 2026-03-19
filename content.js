@@ -44,6 +44,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     doneCount: 0,
     postsToRefetch: null,
     nextRefetchIndex: 0,
+    fetchedPostIds: new Set(),
   };
 
   function getCacheNamespace() {
@@ -355,7 +356,11 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
         item.setAttribute("target", "_blank");
       }
 
-      if (isCache) {
+      if (!isCache) {
+        resumeState.fetchedPostIds.add(post.postId);
+      }
+
+      if (isCache && !resumeState.fetchedPostIds.has(post.postId)) {
         item.classList.add("yt-posts-item-cache");
       } else {
         item.classList.remove("yt-posts-item-cache");
