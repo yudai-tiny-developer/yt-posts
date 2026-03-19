@@ -33,7 +33,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   }, 500);
 
   let dialog;
-  let active = false;
   let doneCount = 0;
   let cacheNamespacePromise;
   let currentDialogSessionId = null;
@@ -78,7 +77,15 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     return cacheNamespacePromise;
   }
 
+  function isDialogSessionActive(dialogSessionId) {
+    return Boolean(dialogSessionId) && dialogSessionId === currentDialogSessionId;
+  }
+
   async function openDialog() {
+    if (currentDialogSessionId) {
+      closeDialog(currentDialogSessionId);
+    }
+
     currentDialogSessionId = crypto.randomUUID();
     const dialogSessionId = currentDialogSessionId;
     dialog = document.createElement("div");
@@ -122,7 +129,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     syncDialogProgress();
-    active = true;
 
     if (hasPendingRefetchWork()) {
       refetchPosts(dialogSessionId);
@@ -139,9 +145,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   }
 
   function closeDialog(dialogSessionId) {
-    if (dialogSessionId !== currentDialogSessionId) return;
-
-    active = false;
+    if (!isDialogSessionActive(dialogSessionId)) return;
     currentDialogSessionId = null;
 
     window.postMessage({
@@ -171,7 +175,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     if (!msg || !msg.type) return;
 
     if (msg.type === "YT_FETCH_CHANNELS_RESULT") {
-      if (msg.dialogSessionId !== currentDialogSessionId || !active) return;
+      if (!isDialogSessionActive(msg.dialogSessionId)) return;
 
       const loader = document.getElementById("yt-posts-loader");
       if (!loader) return;
@@ -188,7 +192,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     if (msg.type === "YT_FETCH_POSTS_BY_CHANNEL_RESULT") {
-      if (msg.dialogSessionId !== currentDialogSessionId || !active || msg.canceled) return;
+      if (!isDialogSessionActive(msg.dialogSessionId) || msg.canceled) return;
 
       const loader = document.getElementById("yt-posts-loader");
       if (!loader) return;
@@ -201,7 +205,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     if (msg.type === "YT_FETCH_POST_BY_ID_RESULT") {
-      if (msg.dialogSessionId !== currentDialogSessionId || !active || msg.canceled) return;
+      if (!isDialogSessionActive(msg.dialogSessionId) || msg.canceled) return;
 
       const cacheNamespace = await getCacheNamespace();
       renderPosts(msg.posts, false, cacheNamespace);
@@ -240,14 +244,14 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     async function worker() {
-      while (hasPendingChannelWork() && active && dialogSessionId === currentDialogSessionId) {
+      while (hasPendingChannelWork() && isDialogSessionActive(dialogSessionId)) {
         const index = resumeState.nextChannelIndex;
         const channel = resumeState.channels?.[index];
         if (!channel) return;
 
         resumeState.nextChannelIndex += 1;
         const response = await fetchPostsByChannel(channel);
-        if (response?.canceled || dialogSessionId !== currentDialogSessionId || !active) {
+        if (response?.canceled || !isDialogSessionActive(dialogSessionId)) {
           resumeState.nextChannelIndex = index;
           return;
         }
@@ -292,14 +296,14 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     async function worker() {
-      while (hasPendingRefetchWork() && active && dialogSessionId === currentDialogSessionId) {
+      while (hasPendingRefetchWork() && isDialogSessionActive(dialogSessionId)) {
         const index = resumeState.nextRefetchIndex;
         const post = resumeState.postsToRefetch?.[index];
         if (!post) return;
 
         resumeState.nextRefetchIndex += 1;
         const response = await fetchPostById(post);
-        if (response?.canceled || dialogSessionId !== currentDialogSessionId || !active) {
+        if (response?.canceled || !isDialogSessionActive(dialogSessionId)) {
           resumeState.nextRefetchIndex = index;
           return;
         }

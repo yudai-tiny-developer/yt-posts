@@ -2,11 +2,11 @@
   const GLOBAL_INNERTUBE_MAX_CONCURRENCY = 3;
   const GLOBAL_INNERTUBE_LOCK_NAME = "yt-posts-innertube";
   const GLOBAL_INNERTUBE_RATE_LOCK_NAME = "yt-posts-innertube-rate";
-  const GLOBAL_INNERTUBE_LOCK_RETRY_MS = 1000;
+  const GLOBAL_INNERTUBE_LOCK_RETRY_MS = 200;
   const GLOBAL_INNERTUBE_MIN_INTERVAL_MS = 1000;
   const GLOBAL_INNERTUBE_NEXT_ALLOWED_AT_KEY = "yt-posts-innertube-next-allowed-at";
   const canceledDialogSessions = new Set();
-  const CANCELLATION_CHECK_INTERVAL_MS = 100;
+  const CANCELLATION_CHECK_INTERVAL_MS = 200;
 
   class DialogSessionCanceledError extends Error {
     constructor() {
