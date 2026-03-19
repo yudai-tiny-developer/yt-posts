@@ -37,6 +37,14 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   let doneCount = 0;
   let cacheNamespacePromise;
   let currentDialogSessionId = null;
+  const resumeState = {
+    channels: null,
+    nextChannelIndex: 0,
+    totalChannels: 0,
+    doneCount: 0,
+    postsToRefetch: null,
+    nextRefetchIndex: 0,
+  };
 
   function getCacheNamespace() {
     if (!cacheNamespacePromise) {
@@ -105,13 +113,28 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     const posts = await loadFromIndexedDB(cacheNamespace);
     if (posts) {
       renderPosts(posts, true, cacheNamespace);
-      active = true;
-      refetchPosts(posts, dialogSessionId);
-    } else {
-      active = true;
+
+      if (!hasPendingRefetchWork()) {
+        resumeState.postsToRefetch = [...posts];
+        resumeState.nextRefetchIndex = 0;
+      }
     }
 
-    requestChannels(dialogSessionId);
+    syncDialogProgress();
+    active = true;
+
+    if (hasPendingRefetchWork()) {
+      refetchPosts(dialogSessionId);
+    } else {
+      resumeState.postsToRefetch = null;
+      resumeState.nextRefetchIndex = 0;
+    }
+
+    if (hasPendingChannelWork()) {
+      fetchPostsByChannels(dialogSessionId);
+    } else {
+      requestChannels(dialogSessionId);
+    }
   }
 
   function closeDialog(dialogSessionId) {
@@ -153,12 +176,13 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       if (!loader) return;
       loader.style.visibility = "hidden";
 
-      const max = document.getElementById("yt-posts-count-max");
-      if (!max) return;
-      max.textContent = msg.channels.length;
-      doneCount = 0;
+      resumeState.channels = [...msg.channels];
+      resumeState.nextChannelIndex = 0;
+      resumeState.totalChannels = msg.channels.length;
+      resumeState.doneCount = 0;
+      syncDialogProgress();
 
-      fetchPostsByChannels(msg.channels, msg.dialogSessionId);
+      fetchPostsByChannels(msg.dialogSessionId);
       return;
     }
 
@@ -184,9 +208,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
   });
 
-  async function fetchPostsByChannels(channels, dialogSessionId) {
-    const queue = [...channels];
-
+  async function fetchPostsByChannels(dialogSessionId) {
     function fetchPostsByChannel(channel) {
       return new Promise((resolve, reject) => {
         const requestId = crypto.randomUUID();
@@ -217,12 +239,20 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     async function worker() {
-      while (queue.length && active && dialogSessionId === currentDialogSessionId) {
-        const channel = queue.shift();
-        const response = await fetchPostsByChannel(channel);
-        if (response?.canceled || dialogSessionId !== currentDialogSessionId || !active) return;
+      while (hasPendingChannelWork() && active && dialogSessionId === currentDialogSessionId) {
+        const index = resumeState.nextChannelIndex;
+        const channel = resumeState.channels?.[index];
+        if (!channel) return;
 
-        doneCount++;
+        resumeState.nextChannelIndex += 1;
+        const response = await fetchPostsByChannel(channel);
+        if (response?.canceled || dialogSessionId !== currentDialogSessionId || !active) {
+          resumeState.nextChannelIndex = index;
+          return;
+        }
+
+        resumeState.doneCount += 1;
+        doneCount = resumeState.doneCount;
         const done = document.getElementById("yt-posts-count-done");
         if (!done) return;
         done.textContent = doneCount;
@@ -234,9 +264,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     );
   }
 
-  async function refetchPosts(posts, dialogSessionId) {
-    const queue = [...posts];
-
+  async function refetchPosts(dialogSessionId) {
     function fetchPostById(post) {
       return new Promise((resolve, reject) => {
         const requestId = crypto.randomUUID();
@@ -263,16 +291,45 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     async function worker() {
-      while (queue.length && active && dialogSessionId === currentDialogSessionId) {
-        const post = queue.shift();
+      while (hasPendingRefetchWork() && active && dialogSessionId === currentDialogSessionId) {
+        const index = resumeState.nextRefetchIndex;
+        const post = resumeState.postsToRefetch?.[index];
+        if (!post) return;
+
+        resumeState.nextRefetchIndex += 1;
         const response = await fetchPostById(post);
-        if (response?.canceled || dialogSessionId !== currentDialogSessionId || !active) return;
+        if (response?.canceled || dialogSessionId !== currentDialogSessionId || !active) {
+          resumeState.nextRefetchIndex = index;
+          return;
+        }
       }
     }
 
     await Promise.all(
       Array.from({ length: MAX_PARALLEL }, worker)
     );
+  }
+
+  function hasPendingChannelWork() {
+    return Array.isArray(resumeState.channels) && resumeState.nextChannelIndex < resumeState.channels.length;
+  }
+
+  function hasPendingRefetchWork() {
+    return Array.isArray(resumeState.postsToRefetch) && resumeState.nextRefetchIndex < resumeState.postsToRefetch.length;
+  }
+
+  function syncDialogProgress() {
+    doneCount = resumeState.doneCount;
+
+    const done = document.getElementById("yt-posts-count-done");
+    if (done) {
+      done.textContent = doneCount;
+    }
+
+    const max = document.getElementById("yt-posts-count-max");
+    if (max) {
+      max.textContent = resumeState.totalChannels || "???";
+    }
   }
 
   function renderPosts(posts, isCache = false, cacheNamespace = "anonymous") {
