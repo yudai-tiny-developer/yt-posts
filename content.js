@@ -1,6 +1,5 @@
 import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, formatRelativeTime, MAX_POSTS }) => {
-  const MAX_PARALLEL = 2;
-  const PARALLEL_DELAY = 1000;
+  const MAX_PARALLEL = 1;
 
   function injectScript() {
     const s = document.createElement("script");
@@ -37,6 +36,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   let active = false;
   let doneCount = 0;
   let cacheNamespacePromise;
+  let currentDialogSessionId = null;
 
   function getCacheNamespace() {
     if (!cacheNamespacePromise) {
@@ -70,6 +70,8 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   }
 
   async function openDialog() {
+    currentDialogSessionId = crypto.randomUUID();
+    const dialogSessionId = currentDialogSessionId;
     dialog = document.createElement("div");
     dialog.className = "yt-posts-dialog";
     dialog.innerHTML = `
@@ -96,8 +98,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     document.body.appendChild(dialog);
 
     document.getElementById("yt-posts-dialog-overlay").onclick = document.getElementById("yt-posts-close").onclick = () => {
-      active = false;
-      dialog.remove();
+      closeDialog(dialogSessionId);
     };
 
     const cacheNamespace = await getCacheNamespace();
@@ -105,21 +106,39 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     if (posts) {
       renderPosts(posts, true, cacheNamespace);
       active = true;
-      refetchPosts(posts);
+      refetchPosts(posts, dialogSessionId);
     } else {
       active = true;
     }
 
-    requestChannels();
+    requestChannels(dialogSessionId);
   }
 
-  function requestChannels() {
+  function closeDialog(dialogSessionId) {
+    if (dialogSessionId !== currentDialogSessionId) return;
+
+    active = false;
+    currentDialogSessionId = null;
+
+    window.postMessage({
+      type: "YT_CANCEL_DIALOG_SESSION",
+      dialogSessionId,
+    }, "*");
+
+    if (dialog) {
+      dialog.remove();
+      dialog = null;
+    }
+  }
+
+  function requestChannels(dialogSessionId) {
     const loader = document.getElementById("yt-posts-loader");
     if (!loader) return;
     loader.style.visibility = "";
 
     window.postMessage({
       type: "YT_FETCH_CHANNELS",
+      dialogSessionId,
     }, "*");
   }
 
@@ -128,6 +147,8 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     if (!msg || !msg.type) return;
 
     if (msg.type === "YT_FETCH_CHANNELS_RESULT") {
+      if (msg.dialogSessionId !== currentDialogSessionId || !active) return;
+
       const loader = document.getElementById("yt-posts-loader");
       if (!loader) return;
       loader.style.visibility = "hidden";
@@ -137,11 +158,13 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       max.textContent = msg.channels.length;
       doneCount = 0;
 
-      fetchPostsByChannels(msg.channels);
+      fetchPostsByChannels(msg.channels, msg.dialogSessionId);
       return;
     }
 
     if (msg.type === "YT_FETCH_POSTS_BY_CHANNEL_RESULT") {
+      if (msg.dialogSessionId !== currentDialogSessionId || !active || msg.canceled) return;
+
       const loader = document.getElementById("yt-posts-loader");
       if (!loader) return;
       loader.style.visibility = "hidden";
@@ -153,13 +176,15 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     if (msg.type === "YT_FETCH_POST_BY_ID_RESULT") {
+      if (msg.dialogSessionId !== currentDialogSessionId || !active || msg.canceled) return;
+
       const cacheNamespace = await getCacheNamespace();
       renderPosts(msg.posts, false, cacheNamespace);
       return;
     }
   });
 
-  async function fetchPostsByChannels(channels) {
+  async function fetchPostsByChannels(channels, dialogSessionId) {
     const queue = [...channels];
 
     function fetchPostsByChannel(channel) {
@@ -172,7 +197,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
             event.data?.requestId === requestId
           ) {
             window.removeEventListener("message", handler);
-            setTimeout(() => resolve(event.data.payload), PARALLEL_DELAY);
+            resolve(event.data);
           }
         }
 
@@ -185,15 +210,17 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
         window.postMessage({
           type: "YT_FETCH_POSTS_BY_CHANNEL",
           requestId,
+          dialogSessionId,
           channel,
         }, "*");
       });
     }
 
     async function worker() {
-      while (queue.length && active) {
+      while (queue.length && active && dialogSessionId === currentDialogSessionId) {
         const channel = queue.shift();
-        await fetchPostsByChannel(channel);
+        const response = await fetchPostsByChannel(channel);
+        if (response?.canceled || dialogSessionId !== currentDialogSessionId || !active) return;
 
         doneCount++;
         const done = document.getElementById("yt-posts-count-done");
@@ -207,7 +234,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     );
   }
 
-  async function refetchPosts(posts) {
+  async function refetchPosts(posts, dialogSessionId) {
     const queue = [...posts];
 
     function fetchPostById(post) {
@@ -220,7 +247,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
             event.data?.requestId === requestId
           ) {
             window.removeEventListener("message", handler);
-            setTimeout(() => resolve(event.data.payload), PARALLEL_DELAY);
+            resolve(event.data);
           }
         }
 
@@ -229,15 +256,17 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
         window.postMessage({
           type: "YT_FETCH_POST_BY_ID",
           requestId,
+          dialogSessionId,
           post,
         }, "*");
       });
     }
 
     async function worker() {
-      while (queue.length && active) {
+      while (queue.length && active && dialogSessionId === currentDialogSessionId) {
         const post = queue.shift();
-        await fetchPostById(post);
+        const response = await fetchPostById(post);
+        if (response?.canceled || dialogSessionId !== currentDialogSessionId || !active) return;
       }
     }
 
