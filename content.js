@@ -123,7 +123,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       renderPosts(posts, true, cacheNamespace);
 
       if (!hasPendingRefetchWork()) {
-        resumeState.postsToRefetch = [...posts];
+        resumeState.postsToRefetch = [...posts].sort((a, b) => parseTime(a.time) - parseTime(b.time));
         resumeState.nextRefetchIndex = 0;
       }
     }
