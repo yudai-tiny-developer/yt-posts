@@ -1,5 +1,6 @@
 import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, formatRelativeTime, MAX_POSTS }) => {
-  const MAX_PARALLEL = 1;
+  const MAX_PARALLEL_FETCH_POSTS_BY_CHANNELS = 1;
+  const MAX_PARALLEL_FETCH_POST_BY_ID = 1;
 
   function injectScript() {
     const s = document.createElement("script");
@@ -263,7 +264,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     await Promise.all(
-      Array.from({ length: MAX_PARALLEL }, worker)
+      Array.from({ length: MAX_PARALLEL_FETCH_POSTS_BY_CHANNELS }, worker)
     );
   }
 
@@ -309,7 +310,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     await Promise.all(
-      Array.from({ length: MAX_PARALLEL }, worker)
+      Array.from({ length: MAX_PARALLEL_FETCH_POST_BY_ID }, worker)
     );
   }
 
