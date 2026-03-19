@@ -33,7 +33,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   }, 500);
 
   let dialog;
-  let doneCount = 0;
   let cacheNamespacePromise;
   let currentDialogSessionId = null;
   const resumeState = {
@@ -257,10 +256,9 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
         }
 
         resumeState.doneCount += 1;
-        doneCount = resumeState.doneCount;
         const done = document.getElementById("yt-posts-count-done");
         if (!done) return;
-        done.textContent = doneCount;
+        done.textContent = resumeState.doneCount;
       }
     }
 
@@ -324,11 +322,9 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   }
 
   function syncDialogProgress() {
-    doneCount = resumeState.doneCount;
-
     const done = document.getElementById("yt-posts-count-done");
     if (done) {
-      done.textContent = doneCount;
+      done.textContent = resumeState.doneCount;
     }
 
     const max = document.getElementById("yt-posts-count-max");
