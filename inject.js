@@ -12,7 +12,7 @@
   };
 
   async function callInnertube(endpoint, body) {
-    const url = `/youtubei/v1/${endpoint}?key=${ytcfg.data_.INNERTUBE_API_KEY}&prettyPrint=false&hl=en&gl=US`;
+    const url = `/youtubei/v1/${endpoint}?key=${ytcfg.data_.INNERTUBE_API_KEY}&prettyPrint=false&hl=en`;
 
     const headers = {
       "Accept-Language": "en",
@@ -41,7 +41,6 @@
     if (context.client) {
       context.client = { ...context.client };
       delete context.client.hl;
-      delete context.client.gl;
 
       context.request = {
         ...context.request,
@@ -114,6 +113,30 @@
       fetchedAt: Date.now(),
     }]);
 
+  }
+
+  async function fetchCacheNamespace(requestId) {
+    const cacheNamespace = await getCacheNamespace();
+
+    window.postMessage({
+      type: "YT_GET_CACHE_NAMESPACE_RESULT",
+      requestId,
+      cacheNamespace,
+    }, "*");
+  }
+
+  async function getCacheNamespace() {
+    const loggedIn = Boolean(ytcfg.data_.LOGGED_IN);
+    const delegatedSessionId = ytcfg.data_.DELEGATED_SESSION_ID ?? null;
+    const datasyncId = ytcfg.data_.DATASYNC_ID ?? null;
+    const accountKey = delegatedSessionId || datasyncId || null;
+
+    const rawNamespace = JSON.stringify({
+      loggedIn,
+      accountKey,
+    });
+
+    return sha1(rawNamespace);
   }
 
   function sendResponce(type, requestId, posts) {
@@ -267,6 +290,10 @@
 
     if (msg.type === "YT_FETCH_POST_BY_ID") {
       fetchPostById(msg.requestId, msg.post);
+    }
+
+    if (msg.type === "YT_GET_CACHE_NAMESPACE") {
+      fetchCacheNamespace(msg.requestId);
     }
   });
 })();

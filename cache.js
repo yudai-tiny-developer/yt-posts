@@ -4,6 +4,10 @@ const DB_VERSION = 1;
 
 export const MAX_POSTS = 100;
 
+function getCacheKey(cacheNamespace = "anonymous", key) {
+	return `${cacheNamespace}:${key}`;
+}
+
 function openDB() {
 	return new Promise((resolve, reject) => {
 		const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -20,23 +24,23 @@ function openDB() {
 	});
 }
 
-export async function saveToIndexedDB(key, post) {
+export async function saveToIndexedDB(cacheNamespace, key, post) {
 	const db = await openDB();
 
 	return new Promise((resolve, reject) => {
 		const tx = db.transaction(STORE_NAME, "readwrite");
 		const store = tx.objectStore(STORE_NAME);
 
-		const req = store.put(post, key);
+		const req = store.put(post, getCacheKey(cacheNamespace, key));
 
 		req.onsuccess = () => resolve();
 		req.onerror = () => reject(req.error);
 	});
 }
 
-export async function deleteExpiredPosts() {
+export async function deleteExpiredPosts(cacheNamespace) {
 	const db = await openDB();
-	const posts = await loadFromIndexedDB();
+	const posts = await loadFromIndexedDB(cacheNamespace);
 	if (!posts || posts.length <= MAX_POSTS) return;
 
 	const sorted = posts.sort((a, b) => parseTime(a.time) - parseTime(b.time));
@@ -46,7 +50,7 @@ export async function deleteExpiredPosts() {
 	const store = tx.objectStore(STORE_NAME);
 
 	for (const post of toDelete) {
-		store.delete(post.postId);
+		store.delete(getCacheKey(cacheNamespace, post.postId));
 	}
 
 	return new Promise((resolve, reject) => {
@@ -55,7 +59,7 @@ export async function deleteExpiredPosts() {
 	});
 }
 
-export async function loadFromIndexedDB() {
+export async function loadFromIndexedDB(cacheNamespace) {
 	const db = await openDB();
 
 	return new Promise((resolve, reject) => {
@@ -65,7 +69,7 @@ export async function loadFromIndexedDB() {
 		const req = store.getAll();
 
 		req.onsuccess = () => {
-			const posts = req.result;
+			const posts = req.result?.filter(post => post?.cacheNamespace === cacheNamespace);
 
 			if (!posts) {
 				resolve(null);

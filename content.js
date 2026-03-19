@@ -36,6 +36,38 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   let dialog;
   let active = false;
   let doneCount = 0;
+  let cacheNamespacePromise;
+
+  function getCacheNamespace() {
+    if (!cacheNamespacePromise) {
+      cacheNamespacePromise = new Promise(resolve => {
+        const requestId = crypto.randomUUID();
+        const timeoutId = setTimeout(() => {
+          window.removeEventListener("message", handler);
+          resolve("anonymous");
+        }, 1000);
+
+        function handler(event) {
+          if (
+            event.data?.type === "YT_GET_CACHE_NAMESPACE_RESULT" &&
+            event.data?.requestId === requestId
+          ) {
+            clearTimeout(timeoutId);
+            window.removeEventListener("message", handler);
+            resolve(event.data.cacheNamespace || "anonymous");
+          }
+        }
+
+        window.addEventListener("message", handler);
+        window.postMessage({
+          type: "YT_GET_CACHE_NAMESPACE",
+          requestId,
+        }, "*");
+      });
+    }
+
+    return cacheNamespacePromise;
+  }
 
   async function openDialog() {
     dialog = document.createElement("div");
@@ -68,9 +100,10 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       dialog.remove();
     };
 
-    const posts = await loadFromIndexedDB();
+    const cacheNamespace = await getCacheNamespace();
+    const posts = await loadFromIndexedDB(cacheNamespace);
     if (posts) {
-      renderPosts(posts, true);
+      renderPosts(posts, true, cacheNamespace);
       active = true;
       refetchPosts(posts);
     } else {
@@ -113,13 +146,15 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       if (!loader) return;
       loader.style.visibility = "hidden";
 
-      renderPosts(msg.posts);
-      deleteExpiredPosts();
+      const cacheNamespace = await getCacheNamespace();
+      renderPosts(msg.posts, false, cacheNamespace);
+      deleteExpiredPosts(cacheNamespace);
       return;
     }
 
     if (msg.type === "YT_FETCH_POST_BY_ID_RESULT") {
-      renderPosts(msg.posts);
+      const cacheNamespace = await getCacheNamespace();
+      renderPosts(msg.posts, false, cacheNamespace);
       return;
     }
   });
@@ -211,7 +246,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     );
   }
 
-  function renderPosts(posts, isCache = false) {
+  function renderPosts(posts, isCache = false, cacheNamespace = "anonymous") {
     if (!posts) return;
 
     const container = document.getElementById(`yt-posts-body`);
@@ -220,7 +255,10 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     posts.forEach(post => {
       if (!post) return;
 
-      saveToIndexedDB(post.postId, post);
+      saveToIndexedDB(cacheNamespace, post.postId, {
+        ...post,
+        cacheNamespace,
+      });
 
       let item = document.getElementById(post.postId);
       if (!item) {
