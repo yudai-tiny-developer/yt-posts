@@ -301,6 +301,10 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
         if (!post) return;
 
         resumeState.nextRefetchIndex += 1;
+        if (!isPostVisible(post.postId)) {
+          continue;
+        }
+
         const response = await fetchPostById(post);
         if (response?.canceled || !isDialogSessionActive(dialogSessionId)) {
           resumeState.nextRefetchIndex = index;
@@ -320,6 +324,21 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
 
   function hasPendingRefetchWork() {
     return Array.isArray(resumeState.postsToRefetch) && resumeState.nextRefetchIndex < resumeState.postsToRefetch.length;
+  }
+
+  function isPostVisible(postId) {
+    if (!postId) return false;
+
+    const container = document.getElementById("yt-posts-body");
+    if (!container) return false;
+
+    try {
+      return CSS.escape
+        ? container.querySelector(`#${CSS.escape(postId)}`) !== null
+        : container.querySelector(`[id="${postId}"]`) !== null;
+    } catch {
+      return container.querySelector(`[id="${postId}"]`) !== null;
+    }
   }
 
   function syncDialogProgress() {
