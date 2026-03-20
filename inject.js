@@ -5,6 +5,7 @@
   const GLOBAL_INNERTUBE_LOCK_RETRY_MS = 200;
   const GLOBAL_INNERTUBE_MIN_INTERVAL_MS = 1000;
   const GLOBAL_INNERTUBE_NEXT_ALLOWED_AT_KEY = "yt-posts-innertube-next-allowed-at";
+  const GLOBAL_INNERTUBE_MAX_PAGINATION_PAGES = 100;
   const canceledDialogSessions = new Set();
   const CANCELLATION_CHECK_INTERVAL_MS = 200;
 
@@ -102,7 +103,7 @@
     });
   }
 
-  async function callInnertube(endpoint, body, dialogSessionId) {
+  async function callInnertubeOnce(endpoint, body, dialogSessionId) {
     return withInnertubeSlot(async () => {
       await waitForInnertubeRateLimit(dialogSessionId);
       throwIfDialogSessionCanceled(dialogSessionId);
@@ -157,19 +158,67 @@
     }, dialogSessionId);
   }
 
+  function getContinuationToken(data) {
+    const continuationCommand = findFirstValueByKey(data, "continuationCommand");
+    if (continuationCommand?.token) return continuationCommand.token;
+
+    const continuationEndpoint = findFirstValueByKey(data, "continuationEndpoint");
+    if (continuationEndpoint?.continuationCommand?.token) return continuationEndpoint.continuationCommand.token;
+
+    const nextContinuationData = findFirstValueByKey(data, "nextContinuationData");
+    if (nextContinuationData?.continuation) return nextContinuationData.continuation;
+
+    const reloadContinuationData = findFirstValueByKey(data, "reloadContinuationData");
+    if (reloadContinuationData?.continuation) return reloadContinuationData.continuation;
+
+    return null;
+  }
+
+  async function callInnertube(endpoint, body, dialogSessionId, options = {}) {
+    if (!options.paginate) {
+      return callInnertubeOnce(endpoint, body, dialogSessionId);
+    }
+
+    const pages = [];
+    const seenTokens = new Set();
+    let requestBody = body;
+
+    for (let pageIndex = 0; pageIndex < GLOBAL_INNERTUBE_MAX_PAGINATION_PAGES; pageIndex++) {
+      const data = await callInnertubeOnce(endpoint, requestBody, dialogSessionId);
+      pages.push(data);
+
+      const continuation = getContinuationToken(data);
+      if (!continuation || seenTokens.has(continuation)) {
+        break;
+      }
+
+      seenTokens.add(continuation);
+      requestBody = { continuation };
+    }
+
+    return pages;
+  }
+
   async function fetchChannels(dialogSessionId) {
     try {
-      const data = await callInnertube("browse", {
+      const pages = await callInnertube("browse", {
         browseId: "FEchannels"
-      }, dialogSessionId);
+      }, dialogSessionId, { paginate: true });
 
       const channels = [];
-      findValuesByKey(data, "channelRenderer")?.forEach(channelRenderer => {
-        channels.push({
-          channelId: channelRenderer.channelId,
-          canonicalBaseUrl: channelRenderer.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl,
-          name: channelRenderer.title?.simpleText,
-          icon: channelRenderer.thumbnail?.thumbnails?.slice(-1)?.[0]?.url,
+      const seenChannelIds = new Set();
+
+      pages.forEach(data => {
+        findValuesByKey(data, "channelRenderer")?.forEach(channelRenderer => {
+          if (!channelRenderer.channelId || seenChannelIds.has(channelRenderer.channelId)) return;
+
+          seenChannelIds.add(channelRenderer.channelId);
+          channels.push({
+            channelId: channelRenderer.channelId,
+            canonicalBaseUrl: channelRenderer.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl,
+            name: channelRenderer.title?.simpleText,
+            icon: channelRenderer.thumbnail?.thumbnails?.slice(-1)?.[0]?.url,
+          });
         });
       });
 
