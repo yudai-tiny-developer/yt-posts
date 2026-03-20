@@ -202,12 +202,7 @@
 }
 
 .yt-posts-subdialog {
-  position: fixed;
-  inset: 0;
-  z-index: 3010;
-  background-color: var(--yt-spec-base-background);
-  color: var(--yt-spec-text-primary);
-  font-size: 1.4rem;
+  display: contents;
 }
 
 .yt-posts-subdialog-content {
@@ -219,6 +214,8 @@
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
   background-color: var(--yt-spec-menu-background);
+  color: var(--yt-spec-text-primary);
+  font-size: 1.4rem;
   border-radius: 12px;
   z-index: 3011;
   display: flex;
@@ -229,7 +226,7 @@
 .yt-posts-subdialog-overlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, .45);
+  background-color: rgba(0, 0, 0, .55);
   z-index: 3010;
 }
 
