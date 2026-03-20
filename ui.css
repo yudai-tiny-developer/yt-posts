@@ -55,20 +55,71 @@
   font-size: 2rem;
   display: flex;
   align-items: center;
-  height: 28px;
+  gap: 12px;
+  min-height: 28px;
   z-index: 3002;
+  flex-wrap: nowrap;
 }
 
 .yt-posts-header-left {
-  margin-right: auto;
   display: flex;
   align-items: center;
+  min-width: 0;
+  margin-right: auto;
 }
 
 .yt-posts-header-right {
-  margin-left: auto;
   display: flex;
   align-items: center;
+  margin-left: auto;
+}
+
+.yt-posts-header-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.yt-posts-managed-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.3rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.yt-posts-managed-toggle input {
+  margin: 0;
+}
+
+.yt-posts-secondary-btn,
+.yt-posts-danger-btn,
+.yt-posts-icon-btn {
+  border: 1px solid var(--yt-spec-outline);
+  background-color: var(--yt-spec-base-background);
+  color: var(--yt-spec-text-primary);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.yt-posts-secondary-btn {
+  padding: 8px 14px;
+  font-size: 1.3rem;
+}
+
+.yt-posts-danger-btn {
+  padding: 6px 12px;
+  font-size: 1.2rem;
+}
+
+.yt-posts-icon-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 1.6rem;
 }
 
 #yt-posts-close {
@@ -141,10 +192,120 @@
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-right: 8px;
+  visibility: hidden;
 }
 
 @keyframes spin {
   100% {
     transform: rotate(360deg)
   }
+}
+
+.yt-posts-subdialog {
+  position: fixed;
+  inset: 0;
+  z-index: 3010;
+  background-color: var(--yt-spec-base-background);
+  color: var(--yt-spec-text-primary);
+  font-size: 1.4rem;
+}
+
+.yt-posts-subdialog-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  background-color: var(--yt-spec-menu-background);
+  border-radius: 12px;
+  z-index: 3011;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.yt-posts-subdialog-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, .45);
+  z-index: 3010;
+}
+
+.yt-posts-subdialog-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--yt-spec-10-percent-layer);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 1.8rem;
+  font-weight: bold;
+}
+
+.yt-posts-subdialog-body {
+  padding: 16px;
+  overflow: auto;
+}
+
+.yt-posts-channel-form {
+  display: flex;
+  gap: 8px;
+}
+
+.yt-posts-text-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--yt-spec-outline);
+  border-radius: 10px;
+}
+
+.yt-posts-channel-manager-status {
+  min-height: 24px;
+  margin: 12px 0;
+  font-size: 1.3rem;
+  color: var(--yt-spec-text-secondary);
+}
+
+.yt-posts-channel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.yt-posts-channel-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--yt-spec-outline);
+  border-radius: 12px;
+  background-color: var(--yt-spec-base-background);
+  cursor: grab;
+}
+
+.yt-posts-channel-list-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.yt-posts-channel-list-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.yt-posts-channel-list-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yt-posts-dragging {
+  opacity: .5;
 }

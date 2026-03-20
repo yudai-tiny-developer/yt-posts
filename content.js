@@ -1,6 +1,14 @@
 import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, formatRelativeTime, MAX_POSTS }) => {
   const MAX_PARALLEL_FETCH_POSTS_BY_CHANNELS = 1;
   const MAX_PARALLEL_FETCH_POST_BY_ID = 1;
+  const STORAGE_KEYS = {
+    useManagedChannels: "yt-posts-use-managed-channels",
+    managedChannels: "yt-posts-managed-channels",
+  };
+
+  function t(key) {
+    return chrome.i18n.getMessage(key) || key;
+  }
 
   function injectScript() {
     const s = document.createElement("script");
@@ -20,7 +28,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
 
     const btn = document.createElement("button");
     btn.id = "yt-posts-list-btn";
-    btn.textContent = "Subscribed Posts";
+    btn.textContent = t("subscribedPosts");
     btn.className = "yt-posts-btn yt-spec-button-shape-next yt-spec-button-shape-next--tonal yt-spec-button-shape-next--mono yt-spec-button-shape-next--size-m yt-spec-button-shape-next--enable-backdrop-filter-experiment";
     btn.onclick = openDialog;
 
@@ -34,8 +42,10 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   }, 500);
 
   let dialog;
+  let channelManagerDialog;
   let cacheNamespacePromise;
   let currentDialogSessionId = null;
+  let activeCacheNamespace = "anonymous";
   const resumeState = {
     channels: null,
     nextChannelIndex: 0,
@@ -45,6 +55,60 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     nextRefetchIndex: 0,
     fetchedPostIds: new Set(),
   };
+
+  function storageGet(keys) {
+    return new Promise(resolve => {
+      chrome.storage.local.get(keys, resolve);
+    });
+  }
+
+  function storageSet(items) {
+    return new Promise(resolve => {
+      chrome.storage.local.set(items, resolve);
+    });
+  }
+
+  async function getManagedChannels() {
+    const result = await storageGet([STORAGE_KEYS.managedChannels]);
+    return Array.isArray(result[STORAGE_KEYS.managedChannels]) ? result[STORAGE_KEYS.managedChannels] : [];
+  }
+
+  async function saveManagedChannels(channels) {
+    await storageSet({
+      [STORAGE_KEYS.managedChannels]: channels,
+    });
+  }
+
+  async function getUseManagedChannels() {
+    const result = await storageGet([STORAGE_KEYS.useManagedChannels]);
+    return Boolean(result[STORAGE_KEYS.useManagedChannels]);
+  }
+
+  async function saveUseManagedChannels(enabled) {
+    await storageSet({
+      [STORAGE_KEYS.useManagedChannels]: enabled,
+    });
+  }
+
+  function resetResumeState() {
+    resumeState.channels = null;
+    resumeState.nextChannelIndex = 0;
+    resumeState.totalChannels = 0;
+    resumeState.doneCount = 0;
+    resumeState.postsToRefetch = null;
+    resumeState.nextRefetchIndex = 0;
+    resumeState.fetchedPostIds = new Set();
+  }
+
+  function hashString(value) {
+    let hash = 5381;
+    for (let index = 0; index < value.length; index++) {
+      hash = ((hash << 5) + hash) + value.charCodeAt(index);
+      hash |= 0;
+    }
+
+    return Math.abs(hash).toString(36);
+  }
 
   function getCacheNamespace() {
     if (!cacheNamespacePromise) {
@@ -77,6 +141,19 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     return cacheNamespacePromise;
   }
 
+  async function getActiveCacheNamespace() {
+    const baseCacheNamespace = await getCacheNamespace();
+    const useManagedChannels = document.getElementById("yt-posts-use-managed-channels")?.checked;
+
+    if (!useManagedChannels) {
+      return `${baseCacheNamespace}:subscriptions`;
+    }
+
+    const channels = await getManagedChannels();
+    const channelIds = channels.map(channel => channel.channelId).join(",");
+    return `${baseCacheNamespace}:managed:${hashString(channelIds)}`;
+  }
+
   function isDialogSessionActive(dialogSessionId) {
     return Boolean(dialogSessionId) && dialogSessionId === currentDialogSessionId;
   }
@@ -95,12 +172,19 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
         <div class="yt-posts-header">
           <div class="yt-posts-header-left">
             <span id="yt-posts-loader"></span>
-            <span>Subscribed Posts</span>
+            <span>${t("subscribedPosts")}</span>
             <span>&nbsp;(</span>
             <span id="yt-posts-count-done">???</span>
             <span>&nbsp;/&nbsp;</span>
             <span id="yt-posts-count-max">???</span>
             <span>)</span>
+          </div>
+          <div class="yt-posts-header-controls">
+            <label class="yt-posts-managed-toggle">
+              <input id="yt-posts-use-managed-channels" type="checkbox">
+              <span>${t("useManagedChannels")}</span>
+            </label>
+            <button id="yt-posts-manage-channels" class="yt-posts-secondary-btn" type="button" hidden>${t("channel")}</button>
           </div>
           <div class="yt-posts-header-right">
             <span id="yt-posts-close">✕</span>
@@ -117,10 +201,30 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       closeDialog(dialogSessionId);
     };
 
-    const cacheNamespace = await getCacheNamespace();
-    const posts = await loadFromIndexedDB(cacheNamespace);
+    const useManagedChannelsInput = document.getElementById("yt-posts-use-managed-channels");
+    const manageChannelsButton = document.getElementById("yt-posts-manage-channels");
+    const useManagedChannels = await getUseManagedChannels();
+
+    useManagedChannelsInput.checked = useManagedChannels;
+    manageChannelsButton.hidden = !useManagedChannels;
+
+    useManagedChannelsInput.onchange = async () => {
+      const enabled = useManagedChannelsInput.checked;
+      manageChannelsButton.hidden = !enabled;
+      await saveUseManagedChannels(enabled);
+      if (isDialogSessionActive(dialogSessionId)) {
+        openDialog();
+      }
+    };
+
+    manageChannelsButton.onclick = () => {
+      openChannelManagerDialog(dialogSessionId);
+    };
+
+    activeCacheNamespace = await getActiveCacheNamespace();
+    const posts = await loadFromIndexedDB(activeCacheNamespace);
     if (posts) {
-      renderPosts(posts, true, cacheNamespace);
+      renderPosts(posts, true, activeCacheNamespace);
 
       if (!hasPendingRefetchWork()) {
         resumeState.postsToRefetch = [...posts].sort((a, b) => parseTime(a.time) - parseTime(b.time));
@@ -140,13 +244,15 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     if (hasPendingChannelWork()) {
       fetchPostsByChannels(dialogSessionId);
     } else {
-      requestChannels(dialogSessionId);
+      requestChannelsByCurrentMode(dialogSessionId);
     }
   }
 
   function closeDialog(dialogSessionId) {
     if (!isDialogSessionActive(dialogSessionId)) return;
     currentDialogSessionId = null;
+    closeChannelManagerDialog(false);
+    resetResumeState();
 
     window.postMessage({
       type: "YT_CANCEL_DIALOG_SESSION",
@@ -159,10 +265,30 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
   }
 
+  async function requestChannelsByCurrentMode(dialogSessionId) {
+    const useManagedChannels = document.getElementById("yt-posts-use-managed-channels")?.checked;
+
+    if (useManagedChannels) {
+      const channels = await getManagedChannels();
+      if (!isDialogSessionActive(dialogSessionId)) return;
+
+      resumeState.channels = [...channels];
+      resumeState.nextChannelIndex = 0;
+      resumeState.totalChannels = channels.length;
+      resumeState.doneCount = 0;
+      syncDialogProgress();
+
+      fetchPostsByChannels(dialogSessionId);
+      return;
+    }
+
+    requestChannels(dialogSessionId);
+  }
+
   function requestChannels(dialogSessionId) {
     const loader = document.getElementById("yt-posts-loader");
     if (!loader) return;
-    loader.style.visibility = "";
+    loader.style.visibility = "visible";
 
     window.postMessage({
       type: "YT_FETCH_CHANNELS",
@@ -198,17 +324,15 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       if (!loader) return;
       loader.style.visibility = "hidden";
 
-      const cacheNamespace = await getCacheNamespace();
-      renderPosts(msg.posts, false, cacheNamespace);
-      deleteExpiredPosts(cacheNamespace);
+      renderPosts(msg.posts, false, activeCacheNamespace);
+      deleteExpiredPosts(activeCacheNamespace);
       return;
     }
 
     if (msg.type === "YT_FETCH_POST_BY_ID_RESULT") {
       if (!isDialogSessionActive(msg.dialogSessionId) || msg.canceled) return;
 
-      const cacheNamespace = await getCacheNamespace();
-      renderPosts(msg.posts, false, cacheNamespace);
+      renderPosts(msg.posts, false, activeCacheNamespace);
       return;
     }
   });
@@ -232,7 +356,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
 
         const loader = document.getElementById("yt-posts-loader");
         if (!loader) return;
-        loader.style.visibility = "";
+        loader.style.visibility = "visible";
 
         window.postMessage({
           type: "YT_FETCH_POSTS_BY_CHANNEL",
@@ -349,7 +473,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
 
     const max = document.getElementById("yt-posts-count-max");
     if (max) {
-      max.textContent = resumeState.totalChannels || "???";
+      max.textContent = resumeState.totalChannels ?? "???";
     }
   }
 
@@ -422,5 +546,173 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     const fragment = document.createDocumentFragment();
     posts.forEach(el => fragment.appendChild(el));
     container.replaceChildren(fragment);
+  }
+
+  function openChannelManagerDialog(dialogSessionId) {
+    if (channelManagerDialog) return;
+
+    channelManagerDialog = document.createElement("div");
+    channelManagerDialog.className = "yt-posts-subdialog";
+    channelManagerDialog.innerHTML = `
+      <div class="yt-posts-subdialog-content">
+        <div class="yt-posts-subdialog-header">
+          <span>${t("channelManager")}</span>
+          <button id="yt-posts-channel-manager-close" class="yt-posts-icon-btn" type="button">✕</button>
+        </div>
+        <div class="yt-posts-subdialog-body">
+          <div class="yt-posts-channel-form">
+            <input id="yt-posts-channel-name" class="yt-posts-text-input" type="text" placeholder="${t("channelInputPlaceholder")}">
+            <button id="yt-posts-channel-add" class="yt-posts-secondary-btn" type="button">${t("add")}</button>
+          </div>
+          <div id="yt-posts-channel-manager-status" class="yt-posts-channel-manager-status"></div>
+          <div id="yt-posts-channel-list" class="yt-posts-channel-list"></div>
+        </div>
+      </div>
+      <div id="yt-posts-channel-manager-overlay" class="yt-posts-subdialog-overlay"></div>
+    `;
+
+    dialog?.appendChild(channelManagerDialog);
+
+    const close = () => closeChannelManagerDialog(true);
+    document.getElementById("yt-posts-channel-manager-close").onclick = close;
+    document.getElementById("yt-posts-channel-manager-overlay").onclick = close;
+    document.getElementById("yt-posts-channel-add").onclick = async () => {
+      await addManagedChannelFromInput(dialogSessionId);
+    };
+    document.getElementById("yt-posts-channel-name").onkeydown = async event => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      await addManagedChannelFromInput(dialogSessionId);
+    };
+
+    renderManagedChannelList();
+  }
+
+  function closeChannelManagerDialog(shouldRefreshPosts = true) {
+    if (!channelManagerDialog) return;
+    channelManagerDialog.remove();
+    channelManagerDialog = null;
+
+    if (shouldRefreshPosts && currentDialogSessionId) {
+      openDialog();
+    }
+  }
+
+  async function renderManagedChannelList() {
+    const container = document.getElementById("yt-posts-channel-list");
+    if (!container) return;
+
+    const channels = await getManagedChannels();
+    container.replaceChildren();
+
+    channels.forEach((channel, index) => {
+      const item = document.createElement("div");
+      item.className = "yt-posts-channel-list-item";
+      item.draggable = true;
+      item.dataset.index = String(index);
+      item.innerHTML = `
+        <div class="yt-posts-channel-list-main">
+          <img class="yt-posts-channel-list-icon" src="${channel.icon ?? ""}" alt="">
+          <span class="yt-posts-channel-list-name">${channel.name ?? channel.channelId}</span>
+        </div>
+        <button class="yt-posts-channel-delete yt-posts-danger-btn" type="button">${t("remove")}</button>
+      `;
+
+      item.addEventListener("dragstart", event => {
+        event.dataTransfer?.setData("text/plain", String(index));
+        event.dataTransfer.effectAllowed = "move";
+        item.classList.add("yt-posts-dragging");
+      });
+
+      item.addEventListener("dragend", () => {
+        item.classList.remove("yt-posts-dragging");
+      });
+
+      item.addEventListener("dragover", event => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      });
+
+      item.addEventListener("drop", async event => {
+        event.preventDefault();
+        const fromIndex = Number(event.dataTransfer?.getData("text/plain"));
+        const toIndex = index;
+        if (Number.isNaN(fromIndex) || fromIndex === toIndex) return;
+
+        const nextChannels = await getManagedChannels();
+        const [moved] = nextChannels.splice(fromIndex, 1);
+        nextChannels.splice(toIndex, 0, moved);
+        await saveManagedChannels(nextChannels);
+        await renderManagedChannelList();
+      });
+
+      item.querySelector(".yt-posts-channel-delete").onclick = async () => {
+        const nextChannels = channels.filter((_, channelIndex) => channelIndex !== index);
+        await saveManagedChannels(nextChannels);
+        await renderManagedChannelList();
+      };
+
+      container.appendChild(item);
+    });
+  }
+
+  async function addManagedChannelFromInput(dialogSessionId) {
+    const input = document.getElementById("yt-posts-channel-name");
+    if (!input) return;
+
+    const channelInput = input.value.trim();
+    if (!channelInput) return;
+
+    setChannelManagerStatus(t("resolvingChannel"));
+
+    const selectedChannel = await resolveChannel(channelInput, dialogSessionId);
+    if (!isDialogSessionActive(dialogSessionId)) return;
+
+    if (!selectedChannel) {
+      setChannelManagerStatus(t("channelNotFound"));
+      return;
+    }
+
+    const managedChannels = await getManagedChannels();
+    if (managedChannels.some(channel => channel.channelId === selectedChannel.channelId)) {
+      setChannelManagerStatus(t("channelAlreadyAdded"));
+      return;
+    }
+
+    await saveManagedChannels([...managedChannels, selectedChannel]);
+    input.value = "";
+    setChannelManagerStatus(t("channelAdded"));
+    await renderManagedChannelList();
+  }
+
+  function setChannelManagerStatus(message) {
+    const status = document.getElementById("yt-posts-channel-manager-status");
+    if (status) {
+      status.textContent = message;
+    }
+  }
+
+  function resolveChannel(input, dialogSessionId) {
+    return new Promise(resolve => {
+      const requestId = crypto.randomUUID();
+
+      function handler(event) {
+        if (
+          event.data?.type === "YT_RESOLVE_CHANNEL_RESULT" &&
+          event.data?.requestId === requestId
+        ) {
+          window.removeEventListener("message", handler);
+          resolve(event.data.channel ?? null);
+        }
+      }
+
+      window.addEventListener("message", handler);
+      window.postMessage({
+        type: "YT_RESOLVE_CHANNEL",
+        requestId,
+        dialogSessionId,
+        input,
+      }, "*");
+    });
   }
 });

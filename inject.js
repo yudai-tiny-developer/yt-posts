@@ -239,6 +239,113 @@
     }
   }
 
+  function normalizeChannelInput(input) {
+    const value = String(input ?? "").trim();
+    if (!value) return null;
+
+    if (/^UC[\w-]{20,}$/i.test(value)) {
+      return {
+        type: "browseId",
+        browseId: value,
+      };
+    }
+
+    if (value.startsWith("@")) {
+      return {
+        type: "url",
+        url: `https://www.youtube.com/${value}`,
+      };
+    }
+
+    if (/^https?:\/\//i.test(value)) {
+      try {
+        const parsed = new URL(value);
+        if (!/youtube\.com$/i.test(parsed.hostname) && !/youtu\.be$/i.test(parsed.hostname)) {
+          return null;
+        }
+
+        return {
+          type: "url",
+          url: value,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    if (value.startsWith("/")) {
+      return {
+        type: "url",
+        url: `https://www.youtube.com${value}`,
+      };
+    }
+
+    return null;
+  }
+
+  function extractChannelFromBrowseData(data, fallbackBrowseId = null) {
+    const channelMetadataRenderer = findFirstValueByKey(data, "channelMetadataRenderer");
+    const c4TabbedHeaderRenderer = findFirstValueByKey(data, "c4TabbedHeaderRenderer");
+    const channelId = channelMetadataRenderer?.externalId ?? c4TabbedHeaderRenderer?.channelId ?? fallbackBrowseId;
+
+    if (!channelId) return null;
+
+    return {
+      channelId,
+      canonicalBaseUrl: channelMetadataRenderer?.vanityChannelUrl
+        ? new URL(channelMetadataRenderer.vanityChannelUrl).pathname
+        : channelMetadataRenderer?.channelUrl
+          ? new URL(channelMetadataRenderer.channelUrl).pathname
+          : c4TabbedHeaderRenderer?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl,
+      name: channelMetadataRenderer?.title ?? c4TabbedHeaderRenderer?.title,
+      icon: channelMetadataRenderer?.avatar?.thumbnails?.slice(-1)?.[0]?.url
+        ?? c4TabbedHeaderRenderer?.avatar?.thumbnails?.slice(-1)?.[0]?.url,
+    };
+  }
+
+  async function resolveChannel(requestId, dialogSessionId, input) {
+    try {
+      const normalizedInput = normalizeChannelInput(input);
+      let channel = null;
+
+      if (normalizedInput?.type === "browseId") {
+        const data = await callInnertube("browse", {
+          browseId: normalizedInput.browseId,
+        }, dialogSessionId);
+        channel = extractChannelFromBrowseData(data, normalizedInput.browseId);
+      }
+
+      if (normalizedInput?.type === "url") {
+        const resolved = await callInnertube("navigation/resolve_url", {
+          url: normalizedInput.url,
+        }, dialogSessionId);
+        const browseId = resolved?.endpoint?.browseEndpoint?.browseId;
+
+        if (browseId) {
+          const data = await callInnertube("browse", { browseId }, dialogSessionId);
+          channel = extractChannelFromBrowseData(data, browseId);
+        }
+      }
+
+      window.postMessage({
+        type: "YT_RESOLVE_CHANNEL_RESULT",
+        requestId,
+        dialogSessionId,
+        channel,
+      }, "*");
+    } catch (error) {
+      if (!(error instanceof DialogSessionCanceledError)) throw error;
+
+      window.postMessage({
+        type: "YT_RESOLVE_CHANNEL_RESULT",
+        requestId,
+        dialogSessionId,
+        channel: null,
+        canceled: true,
+      }, "*");
+    }
+  }
+
   async function fetchPostsByChannel(requestId, dialogSessionId, channel) {
     try {
       const data = await callInnertube("browse", { browseId: channel.channelId, params: "EgVwb3N0c_IGBAoCSgA%3D" }, dialogSessionId);
@@ -459,6 +566,10 @@
 
     if (msg.type === "YT_FETCH_POST_BY_ID") {
       fetchPostById(msg.requestId, msg.dialogSessionId, msg.post);
+    }
+
+    if (msg.type === "YT_RESOLVE_CHANNEL") {
+      resolveChannel(msg.requestId, msg.dialogSessionId, msg.input);
     }
 
     if (msg.type === "YT_GET_CACHE_NAMESPACE") {

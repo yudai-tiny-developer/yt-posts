@@ -1,0 +1,41 @@
+{
+  "extensionName": {
+    "message": "YouTube Subscribed Posts Viewer"
+  },
+  "extensionDescription": {
+    "message": "YouTube Subscribed Posts Viewer"
+  },
+  "subscribedPosts": {
+    "message": "Subscribed Posts"
+  },
+  "useManagedChannels": {
+    "message": "Fetch posts from selected channels"
+  },
+  "channel": {
+    "message": "Channels"
+  },
+  "channelManager": {
+    "message": "Channel Manager"
+  },
+  "channelInputPlaceholder": {
+    "message": "Channel ID / @handle / URL"
+  },
+  "add": {
+    "message": "Add"
+  },
+  "remove": {
+    "message": "Remove"
+  },
+  "resolvingChannel": {
+    "message": "Resolving channel..."
+  },
+  "channelNotFound": {
+    "message": "Channel could not be resolved"
+  },
+  "channelAlreadyAdded": {
+    "message": "That channel is already added"
+  },
+  "channelAdded": {
+    "message": "Channel added"
+  }
+}
