@@ -1,6 +1,6 @@
 import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, formatRelativeTime, MAX_POSTS }) => {
-  const MAX_PARALLEL = 2;
-  const PARALLEL_DELAY = 1000;
+  const MAX_PARALLEL_FETCH_POSTS_BY_CHANNELS = 1;
+  const MAX_PARALLEL_FETCH_POST_BY_ID = 1;
 
   function injectScript() {
     const s = document.createElement("script");
@@ -34,10 +34,60 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   }, 500);
 
   let dialog;
-  let active = false;
-  let doneCount = 0;
+  let cacheNamespacePromise;
+  let currentDialogSessionId = null;
+  const resumeState = {
+    channels: null,
+    nextChannelIndex: 0,
+    totalChannels: 0,
+    doneCount: 0,
+    postsToRefetch: null,
+    nextRefetchIndex: 0,
+    fetchedPostIds: new Set(),
+  };
+
+  function getCacheNamespace() {
+    if (!cacheNamespacePromise) {
+      cacheNamespacePromise = new Promise(resolve => {
+        const requestId = crypto.randomUUID();
+        const timeoutId = setTimeout(() => {
+          window.removeEventListener("message", handler);
+          resolve("anonymous");
+        }, 1000);
+
+        function handler(event) {
+          if (
+            event.data?.type === "YT_GET_CACHE_NAMESPACE_RESULT" &&
+            event.data?.requestId === requestId
+          ) {
+            clearTimeout(timeoutId);
+            window.removeEventListener("message", handler);
+            resolve(event.data.cacheNamespace || "anonymous");
+          }
+        }
+
+        window.addEventListener("message", handler);
+        window.postMessage({
+          type: "YT_GET_CACHE_NAMESPACE",
+          requestId,
+        }, "*");
+      });
+    }
+
+    return cacheNamespacePromise;
+  }
+
+  function isDialogSessionActive(dialogSessionId) {
+    return Boolean(dialogSessionId) && dialogSessionId === currentDialogSessionId;
+  }
 
   async function openDialog() {
+    if (currentDialogSessionId) {
+      closeDialog(currentDialogSessionId);
+    }
+
+    currentDialogSessionId = crypto.randomUUID();
+    const dialogSessionId = currentDialogSessionId;
     dialog = document.createElement("div");
     dialog.className = "yt-posts-dialog";
     dialog.innerHTML = `
@@ -64,29 +114,59 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     document.body.appendChild(dialog);
 
     document.getElementById("yt-posts-dialog-overlay").onclick = document.getElementById("yt-posts-close").onclick = () => {
-      active = false;
-      dialog.remove();
+      closeDialog(dialogSessionId);
     };
 
-    const posts = await loadFromIndexedDB();
+    const cacheNamespace = await getCacheNamespace();
+    const posts = await loadFromIndexedDB(cacheNamespace);
     if (posts) {
-      renderPosts(posts, true);
-      active = true;
-      refetchPosts(posts);
-    } else {
-      active = true;
+      renderPosts(posts, true, cacheNamespace);
+
+      if (!hasPendingRefetchWork()) {
+        resumeState.postsToRefetch = [...posts].sort((a, b) => parseTime(a.time) - parseTime(b.time));
+        resumeState.nextRefetchIndex = 0;
+      }
     }
 
-    requestChannels();
+    syncDialogProgress();
+
+    if (hasPendingRefetchWork()) {
+      refetchPosts(dialogSessionId);
+    } else {
+      resumeState.postsToRefetch = null;
+      resumeState.nextRefetchIndex = 0;
+    }
+
+    if (hasPendingChannelWork()) {
+      fetchPostsByChannels(dialogSessionId);
+    } else {
+      requestChannels(dialogSessionId);
+    }
   }
 
-  function requestChannels() {
+  function closeDialog(dialogSessionId) {
+    if (!isDialogSessionActive(dialogSessionId)) return;
+    currentDialogSessionId = null;
+
+    window.postMessage({
+      type: "YT_CANCEL_DIALOG_SESSION",
+      dialogSessionId,
+    }, "*");
+
+    if (dialog) {
+      dialog.remove();
+      dialog = null;
+    }
+  }
+
+  function requestChannels(dialogSessionId) {
     const loader = document.getElementById("yt-posts-loader");
     if (!loader) return;
     loader.style.visibility = "";
 
     window.postMessage({
       type: "YT_FETCH_CHANNELS",
+      dialogSessionId,
     }, "*");
   }
 
@@ -95,38 +175,45 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     if (!msg || !msg.type) return;
 
     if (msg.type === "YT_FETCH_CHANNELS_RESULT") {
+      if (!isDialogSessionActive(msg.dialogSessionId)) return;
+
       const loader = document.getElementById("yt-posts-loader");
       if (!loader) return;
       loader.style.visibility = "hidden";
 
-      const max = document.getElementById("yt-posts-count-max");
-      if (!max) return;
-      max.textContent = msg.channels.length;
-      doneCount = 0;
+      resumeState.channels = [...msg.channels];
+      resumeState.nextChannelIndex = 0;
+      resumeState.totalChannels = msg.channels.length;
+      resumeState.doneCount = 0;
+      syncDialogProgress();
 
-      fetchPostsByChannels(msg.channels);
+      fetchPostsByChannels(msg.dialogSessionId);
       return;
     }
 
     if (msg.type === "YT_FETCH_POSTS_BY_CHANNEL_RESULT") {
+      if (!isDialogSessionActive(msg.dialogSessionId) || msg.canceled) return;
+
       const loader = document.getElementById("yt-posts-loader");
       if (!loader) return;
       loader.style.visibility = "hidden";
 
-      renderPosts(msg.posts);
-      deleteExpiredPosts();
+      const cacheNamespace = await getCacheNamespace();
+      renderPosts(msg.posts, false, cacheNamespace);
+      deleteExpiredPosts(cacheNamespace);
       return;
     }
 
     if (msg.type === "YT_FETCH_POST_BY_ID_RESULT") {
-      renderPosts(msg.posts);
+      if (!isDialogSessionActive(msg.dialogSessionId) || msg.canceled) return;
+
+      const cacheNamespace = await getCacheNamespace();
+      renderPosts(msg.posts, false, cacheNamespace);
       return;
     }
   });
 
-  async function fetchPostsByChannels(channels) {
-    const queue = [...channels];
-
+  async function fetchPostsByChannels(dialogSessionId) {
     function fetchPostsByChannel(channel) {
       return new Promise((resolve, reject) => {
         const requestId = crypto.randomUUID();
@@ -137,7 +224,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
             event.data?.requestId === requestId
           ) {
             window.removeEventListener("message", handler);
-            setTimeout(() => resolve(event.data.payload), PARALLEL_DELAY);
+            resolve(event.data);
           }
         }
 
@@ -150,31 +237,38 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
         window.postMessage({
           type: "YT_FETCH_POSTS_BY_CHANNEL",
           requestId,
+          dialogSessionId,
           channel,
         }, "*");
       });
     }
 
     async function worker() {
-      while (queue.length && active) {
-        const channel = queue.shift();
-        await fetchPostsByChannel(channel);
+      while (hasPendingChannelWork() && isDialogSessionActive(dialogSessionId)) {
+        const index = resumeState.nextChannelIndex;
+        const channel = resumeState.channels?.[index];
+        if (!channel) return;
 
-        doneCount++;
+        resumeState.nextChannelIndex += 1;
+        const response = await fetchPostsByChannel(channel);
+        if (response?.canceled || !isDialogSessionActive(dialogSessionId)) {
+          resumeState.nextChannelIndex = index;
+          return;
+        }
+
+        resumeState.doneCount += 1;
         const done = document.getElementById("yt-posts-count-done");
         if (!done) return;
-        done.textContent = doneCount;
+        done.textContent = resumeState.doneCount;
       }
     }
 
     await Promise.all(
-      Array.from({ length: MAX_PARALLEL }, worker)
+      Array.from({ length: MAX_PARALLEL_FETCH_POSTS_BY_CHANNELS }, worker)
     );
   }
 
-  async function refetchPosts(posts) {
-    const queue = [...posts];
-
+  async function refetchPosts(dialogSessionId) {
     function fetchPostById(post) {
       return new Promise((resolve, reject) => {
         const requestId = crypto.randomUUID();
@@ -185,7 +279,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
             event.data?.requestId === requestId
           ) {
             window.removeEventListener("message", handler);
-            setTimeout(() => resolve(event.data.payload), PARALLEL_DELAY);
+            resolve(event.data);
           }
         }
 
@@ -194,24 +288,72 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
         window.postMessage({
           type: "YT_FETCH_POST_BY_ID",
           requestId,
+          dialogSessionId,
           post,
         }, "*");
       });
     }
 
     async function worker() {
-      while (queue.length && active) {
-        const post = queue.shift();
-        await fetchPostById(post);
+      while (hasPendingRefetchWork() && isDialogSessionActive(dialogSessionId)) {
+        const index = resumeState.nextRefetchIndex;
+        const post = resumeState.postsToRefetch?.[index];
+        if (!post) return;
+
+        resumeState.nextRefetchIndex += 1;
+        if (!isPostVisible(post.postId)) {
+          continue;
+        }
+
+        const response = await fetchPostById(post);
+        if (response?.canceled || !isDialogSessionActive(dialogSessionId)) {
+          resumeState.nextRefetchIndex = index;
+          return;
+        }
       }
     }
 
     await Promise.all(
-      Array.from({ length: MAX_PARALLEL }, worker)
+      Array.from({ length: MAX_PARALLEL_FETCH_POST_BY_ID }, worker)
     );
   }
 
-  function renderPosts(posts, isCache = false) {
+  function hasPendingChannelWork() {
+    return Array.isArray(resumeState.channels) && resumeState.nextChannelIndex < resumeState.channels.length;
+  }
+
+  function hasPendingRefetchWork() {
+    return Array.isArray(resumeState.postsToRefetch) && resumeState.nextRefetchIndex < resumeState.postsToRefetch.length;
+  }
+
+  function isPostVisible(postId) {
+    if (!postId) return false;
+
+    const container = document.getElementById("yt-posts-body");
+    if (!container) return false;
+
+    try {
+      return CSS.escape
+        ? container.querySelector(`#${CSS.escape(postId)}`) !== null
+        : container.querySelector(`[id="${postId}"]`) !== null;
+    } catch {
+      return container.querySelector(`[id="${postId}"]`) !== null;
+    }
+  }
+
+  function syncDialogProgress() {
+    const done = document.getElementById("yt-posts-count-done");
+    if (done) {
+      done.textContent = resumeState.doneCount;
+    }
+
+    const max = document.getElementById("yt-posts-count-max");
+    if (max) {
+      max.textContent = resumeState.totalChannels || "???";
+    }
+  }
+
+  function renderPosts(posts, isCache = false, cacheNamespace = "anonymous") {
     if (!posts) return;
 
     const container = document.getElementById(`yt-posts-body`);
@@ -220,7 +362,10 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     posts.forEach(post => {
       if (!post) return;
 
-      saveToIndexedDB(post.postId, post);
+      saveToIndexedDB(cacheNamespace, post.postId, {
+        ...post,
+        cacheNamespace,
+      });
 
       let item = document.getElementById(post.postId);
       if (!item) {
@@ -231,7 +376,11 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
         item.setAttribute("target", "_blank");
       }
 
-      if (isCache) {
+      if (!isCache) {
+        resumeState.fetchedPostIds.add(post.postId);
+      }
+
+      if (isCache && !resumeState.fetchedPostIds.has(post.postId)) {
         item.classList.add("yt-posts-item-cache");
       } else {
         item.classList.remove("yt-posts-item-cache");
