@@ -158,6 +158,48 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     return Boolean(dialogSessionId) && dialogSessionId === currentDialogSessionId;
   }
 
+  function findScrollableAncestor(root, target) {
+    let node = target instanceof Element ? target : null;
+    while (node && node !== root) {
+      const style = getComputedStyle(node);
+      const overflowY = style.overflowY;
+      const canScrollY = (overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight;
+      if (canScrollY) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+
+    const rootStyle = getComputedStyle(root);
+    const rootCanScrollY =
+      (rootStyle.overflowY === "auto" || rootStyle.overflowY === "scroll") &&
+      root.scrollHeight > root.clientHeight;
+    return rootCanScrollY ? root : null;
+  }
+
+  function trapWheelScroll(root) {
+    root.addEventListener("wheel", event => {
+      event.stopPropagation();
+
+      const scrollable = findScrollableAncestor(root, event.target);
+      if (!scrollable) {
+        event.preventDefault();
+        return;
+      }
+
+      const deltaY = event.deltaY;
+      if (deltaY === 0) return;
+
+      const isScrollingDown = deltaY > 0;
+      const reachedTop = scrollable.scrollTop <= 0;
+      const reachedBottom = scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight;
+
+      if ((isScrollingDown && reachedBottom) || (!isScrollingDown && reachedTop)) {
+        event.preventDefault();
+      }
+    }, { passive: false });
+  }
+
   async function openDialog() {
     if (currentDialogSessionId) {
       closeDialog(currentDialogSessionId);
@@ -196,6 +238,8 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     `;
 
     document.body.appendChild(dialog);
+
+    trapWheelScroll(document.getElementById("yt-posts-dialog-content"));
 
     document.getElementById("yt-posts-dialog-overlay").onclick = document.getElementById("yt-posts-close").onclick = () => {
       closeDialog(dialogSessionId);
@@ -572,6 +616,8 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     `;
 
     dialog?.appendChild(channelManagerDialog);
+
+    trapWheelScroll(channelManagerDialog.querySelector(".yt-posts-subdialog-content"));
 
     const close = () => closeChannelManagerDialog(true);
     document.getElementById("yt-posts-channel-manager-close").onclick = close;
