@@ -4,7 +4,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   const STORAGE_KEYS = {
     useManagedChannels: "yt-posts-use-managed-channels",
     managedChannels: "yt-posts-managed-channels",
-    resumeProgress: "yt-posts-resume-progress",
   };
 
   function t(key) {
@@ -58,6 +57,8 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     fetchedPostIds: new Set(),
   };
 
+  let progressMap = {};
+
   function storageGet(keys) {
     return new Promise(resolve => {
       chrome.storage.local.get(keys, resolve);
@@ -93,8 +94,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   }
 
   async function getResumeProgressMap() {
-    const result = await storageGet([STORAGE_KEYS.resumeProgress]);
-    const progressMap = result[STORAGE_KEYS.resumeProgress];
     return progressMap && typeof progressMap === "object" ? progressMap : {};
   }
 
@@ -115,10 +114,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     } else {
       delete progressMap[cacheNamespace];
     }
-
-    await storageSet({
-      [STORAGE_KEYS.resumeProgress]: progressMap,
-    });
   }
 
   function resetResumeState() {
@@ -292,6 +287,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       const enabled = useManagedChannelsInput.checked;
       manageChannelsButton.hidden = !enabled;
       await saveUseManagedChannels(enabled);
+      resetResumeState();
       if (isDialogSessionActive(dialogSessionId)) {
         openDialog();
       }
@@ -332,7 +328,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     if (!isDialogSessionActive(dialogSessionId)) return;
     currentDialogSessionId = null;
     closeChannelManagerDialog(false);
-    resetResumeState();
 
     window.postMessage({
       type: "YT_CANCEL_DIALOG_SESSION",
