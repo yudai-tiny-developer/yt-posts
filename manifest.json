@@ -1,8 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "YouTube Subscribed Posts Viewer",
-  "version": "0.6.0",
-  "description": "YouTube Subscribed Posts Viewer",
+  "name": "__MSG_extensionName__",
+  "version": "0.7.0",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
+  "permissions": [
+    "storage"
+  ],
   "content_scripts": [
     {
       "matches": [

@@ -1,0 +1,41 @@
+{
+  "extensionName": {
+    "message": "YouTube 登録チャンネル投稿ビューア"
+  },
+  "extensionDescription": {
+    "message": "YouTube の登録チャンネル投稿を表示します"
+  },
+  "subscribedPosts": {
+    "message": "登録チャンネルの投稿"
+  },
+  "useManagedChannels": {
+    "message": "指定したチャンネルの投稿を取得する"
+  },
+  "channel": {
+    "message": "チャンネル管理"
+  },
+  "channelManager": {
+    "message": "チャンネル管理"
+  },
+  "channelInputPlaceholder": {
+    "message": "チャンネルID / @handle / URL"
+  },
+  "add": {
+    "message": "追加"
+  },
+  "remove": {
+    "message": "削除"
+  },
+  "resolvingChannel": {
+    "message": "チャンネルを確認中です"
+  },
+  "channelNotFound": {
+    "message": "チャンネルを特定できませんでした"
+  },
+  "channelAlreadyAdded": {
+    "message": "そのチャンネルは既に追加されています"
+  },
+  "channelAdded": {
+    "message": "チャンネルを追加しました"
+  }
+}
