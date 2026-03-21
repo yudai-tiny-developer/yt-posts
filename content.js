@@ -1,5 +1,5 @@
 import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndexedDB, deleteExpiredPosts, parseTime, formatRelativeTime, MAX_POSTS }) => {
-  const MAX_PARALLEL_FETCH_POSTS_BY_CHANNELS = 1;
+  const MAX_PARALLEL_FETCH_POSTS_BY_CHANNELS = 2;
   const MAX_PARALLEL_FETCH_POST_BY_ID = 1;
   const STORAGE_KEYS = {
     useManagedChannels: "yt-posts-use-managed-channels",
