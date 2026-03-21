@@ -12,7 +12,7 @@
     "message": "指定したチャンネルの投稿を取得する"
   },
   "channel": {
-    "message": "チャンネル"
+    "message": "チャンネル管理"
   },
   "channelManager": {
     "message": "チャンネル管理"

@@ -4,7 +4,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   const STORAGE_KEYS = {
     useManagedChannels: "yt-posts-use-managed-channels",
     managedChannels: "yt-posts-managed-channels",
-    resumeProgress: "yt-posts-resume-progress",
   };
 
   function t(key) {
@@ -30,7 +29,7 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     const btn = document.createElement("button");
     btn.id = "yt-posts-list-btn";
     btn.textContent = t("subscribedPosts");
-    btn.className = "yt-posts-btn yt-spec-button-shape-next yt-spec-button-shape-next--tonal yt-spec-button-shape-next--mono yt-spec-button-shape-next--size-m yt-spec-button-shape-next--enable-backdrop-filter-experiment";
+    btn.className = "yt-posts-btn";
     btn.onclick = openDialog;
 
     section.prepend(btn);
@@ -49,7 +48,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
   let activeCacheNamespace = "anonymous";
   const resumeState = {
     channels: null,
-    channelsHash: null,
     nextChannelIndex: 0,
     totalChannels: 0,
     doneCount: 0,
@@ -92,38 +90,8 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     });
   }
 
-  async function getResumeProgressMap() {
-    const result = await storageGet([STORAGE_KEYS.resumeProgress]);
-    const progressMap = result[STORAGE_KEYS.resumeProgress];
-    return progressMap && typeof progressMap === "object" ? progressMap : {};
-  }
-
-  async function getResumeProgress(cacheNamespace) {
-    if (!cacheNamespace) return null;
-
-    const progressMap = await getResumeProgressMap();
-    const progress = progressMap[cacheNamespace];
-    return progress && typeof progress === "object" ? progress : null;
-  }
-
-  async function setResumeProgress(cacheNamespace, progress) {
-    if (!cacheNamespace) return;
-
-    const progressMap = await getResumeProgressMap();
-    if (progress) {
-      progressMap[cacheNamespace] = progress;
-    } else {
-      delete progressMap[cacheNamespace];
-    }
-
-    await storageSet({
-      [STORAGE_KEYS.resumeProgress]: progressMap,
-    });
-  }
-
   function resetResumeState() {
     resumeState.channels = null;
-    resumeState.channelsHash = null;
     resumeState.nextChannelIndex = 0;
     resumeState.totalChannels = 0;
     resumeState.doneCount = 0;
@@ -140,10 +108,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     }
 
     return Math.abs(hash).toString(36);
-  }
-
-  function getChannelsHash(channels) {
-    return hashString(channels.map(channel => channel.channelId).join(","));
   }
 
   function getCacheNamespace() {
@@ -352,7 +316,11 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       const channels = await getManagedChannels();
       if (!isDialogSessionActive(dialogSessionId)) return;
 
-      await applyChannelResumeProgress(channels);
+      resumeState.channels = [...channels];
+      resumeState.nextChannelIndex = 0;
+      resumeState.totalChannels = channels.length;
+      resumeState.doneCount = 0;
+      syncDialogProgress();
 
       fetchPostsByChannels(dialogSessionId);
       return;
@@ -383,7 +351,11 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
       if (!loader) return;
       loader.style.visibility = "hidden";
 
-      await applyChannelResumeProgress(msg.channels);
+      resumeState.channels = [...msg.channels];
+      resumeState.nextChannelIndex = 0;
+      resumeState.totalChannels = msg.channels.length;
+      resumeState.doneCount = 0;
+      syncDialogProgress();
 
       fetchPostsByChannels(msg.dialogSessionId);
       return;
@@ -452,15 +424,16 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
           return;
         }
 
-        await markChannelFetchCompleted(channel);
+        resumeState.doneCount += 1;
+        const done = document.getElementById("yt-posts-count-done");
+        if (!done) return;
+        done.textContent = resumeState.doneCount;
       }
     }
 
     await Promise.all(
       Array.from({ length: MAX_PARALLEL_FETCH_POSTS_BY_CHANNELS }, worker)
     );
-
-    await finalizeChannelResumeProgress();
   }
 
   async function refetchPosts(dialogSessionId) {
@@ -545,56 +518,6 @@ import(chrome.runtime.getURL("cache.js")).then(({ saveToIndexedDB, loadFromIndex
     const max = document.getElementById("yt-posts-count-max");
     if (max) {
       max.textContent = resumeState.totalChannels ?? "???";
-    }
-  }
-
-  async function applyChannelResumeProgress(channels) {
-    const channelList = Array.isArray(channels) ? channels : [];
-    const channelsHash = getChannelsHash(channelList);
-    const progress = await getResumeProgress(activeCacheNamespace);
-    const completedChannelIds = progress?.channelsHash === channelsHash
-      ? new Set(progress.completedChannelIds ?? [])
-      : new Set();
-
-    resumeState.channels = channelList.filter(channel => !completedChannelIds.has(channel.channelId));
-    resumeState.channelsHash = channelsHash;
-    resumeState.nextChannelIndex = 0;
-    resumeState.totalChannels = channelList.length;
-    resumeState.doneCount = Math.min(completedChannelIds.size, channelList.length);
-    syncDialogProgress();
-
-    if (channelList.length === 0 || completedChannelIds.size >= channelList.length) {
-      await setResumeProgress(activeCacheNamespace, null);
-      return;
-    }
-
-    await setResumeProgress(activeCacheNamespace, {
-      channelsHash,
-      completedChannelIds: [...completedChannelIds],
-    });
-  }
-
-  async function markChannelFetchCompleted(channel) {
-    resumeState.doneCount += 1;
-    syncDialogProgress();
-
-    if (!channel?.channelId || !activeCacheNamespace) return;
-
-    const progress = await getResumeProgress(activeCacheNamespace);
-    const completedChannelIds = new Set(progress?.completedChannelIds ?? []);
-    completedChannelIds.add(channel.channelId);
-
-    await setResumeProgress(activeCacheNamespace, {
-      channelsHash: progress?.channelsHash ?? resumeState.channelsHash,
-      completedChannelIds: [...completedChannelIds],
-    });
-  }
-
-  async function finalizeChannelResumeProgress() {
-    if (!activeCacheNamespace) return;
-
-    if (resumeState.totalChannels > 0 && resumeState.doneCount >= resumeState.totalChannels) {
-      await setResumeProgress(activeCacheNamespace, null);
     }
   }
 

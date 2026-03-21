@@ -1,9 +1,17 @@
 .yt-posts-btn {
-  width: 100%;
-  padding: 8px;
+  padding: 12px;
+  margin: 8px 0;
   background-color: var(--yt-spec-brand-background-primary);
   border: none;
   cursor: pointer;
+  color: var(--yt-spec-text-primary);
+  font-size: var(--body-m-size);
+  border-radius: 10px;
+  text-align: left;
+}
+
+.yt-posts-btn:hover {
+  background-color: var(--yt-spec-additive-background);
 }
 
 .yt-posts-dialog {

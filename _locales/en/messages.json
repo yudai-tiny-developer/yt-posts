@@ -12,7 +12,7 @@
     "message": "Fetch posts from selected channels"
   },
   "channel": {
-    "message": "Channels"
+    "message": "Channel Manager"
   },
   "channelManager": {
     "message": "Channel Manager"
